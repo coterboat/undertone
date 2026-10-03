@@ -1,9 +1,10 @@
 // undertone: plays your Claude Code sessions as music.
 //
 // This mod sends what the session does (turns, tool calls, edits, commits, failing and
-// passing checks, coter-kit's checklist and waiting notes) to the undertone bridge on
-// 127.0.0.1, which streams it to the page in your browser. Only event types, tool names
-// and the project's name leave the session: never prompt text, file paths or commands.
+// passing checks, permission prompts, coter-kit's checklist) to the undertone bridge on
+// 127.0.0.1, which streams it to the page in your browser, along with how many coter-kit
+// questions wait on you in each project. Only event types, tool names, project names and
+// those counts leave the session: never prompt text, file paths or commands.
 //
 //   /undertone          start the bridge if it isn't running and open the page
 //   /undertone status   is the bridge up, and is this session sending
@@ -14,6 +15,9 @@ const DEFAULT_PORT = 4747
 const CHECKLIST_TOOL = 'mcp__coter-kit__checklist'
 const REMEMBER_TOOL = 'mcp__coter-kit__remember'
 const DOWN_BACKOFF_MS = 15_000
+const HEARTBEAT_MS = 60_000
+const WAITING_EVERY_MS = 120_000
+const WAITING_TTL_MS = 30 * 86_400_000 // coter-kit drops an unanswered question after 30 days
 
 // Commands whose pass or fail is the build's state: tests, typechecks, builds, linters
 const CHECK_CMD = /\b(?:(?:npm|pnpm|yarn|bun)\s+(?:run\s+)?(?:test|build|typecheck|type-check|lint|check)|npx\s+(?:tsc|jest|vitest|eslint|playwright)|tsc|jest|vitest|pytest|mypy|ruff\s+check|dotnet\s+(?:build|test)|cargo\s+(?:build|test|check)|go\s+(?:build|test|vet)|python3?\s+-m\s+(?:pytest|py_compile|mypy|unittest)|make)\b/
@@ -29,6 +33,8 @@ let flushTimer = null
 let downUntil = 0
 let bridge = null // the bridge process this session started, if any
 let checksFailing = false
+let brainDir = ''
+let lastWaiting = ''
 
 function kindOf(tool) {
   if (/^(Read|Grep|Glob|LS|NotebookRead)$/.test(tool)) return 'read'
@@ -75,6 +81,75 @@ async function flush($) {
   } catch {
     downUntil = now + DOWN_BACKOFF_MS
   }
+}
+
+// ---------------------------------------------------------------- waiting on you (coter-kit's brain)
+
+const safeJson = (line) => { try { return JSON.parse(line) } catch { return null } }
+
+async function listDir($, dir) {
+  try {
+    return await $.fs.list(dir)
+  } catch {
+    return []
+  }
+}
+
+async function readText($, path) {
+  try {
+    const r = await $.fs.read(path)
+    return typeof r === 'string' ? r : r && typeof r.text === 'string' ? r.text : ''
+  } catch {
+    return ''
+  }
+}
+
+// Open questions per project, read the way coter-kit reads them: every machine's journal,
+// status changes applied in order, unanswered ones dropped after 30 days
+async function readWaiting($) {
+  let dir = brainDir
+  if (!dir) {
+    const home = (await $.env.get('HOME')) || (await $.env.get('USERPROFILE')) || ''
+    if (!home) return {}
+    dir = String(home).replace(/\\/g, '/') + '/.claude/coter-brain'
+  }
+  const journal = dir.replace(/\/+$/, '') + '/journal'
+  const entries = new Map()
+  const ops = []
+  for (const device of await listDir($, journal)) {
+    if (device.kind !== 'dir') continue
+    for (const f of await listDir($, journal + '/' + device.name)) {
+      if (!f.name.endsWith('.jsonl')) continue
+      for (const line of (await readText($, journal + '/' + device.name + '/' + f.name)).split('\n')) {
+        const row = safeJson(line)
+        if (!row) continue
+        if (row.op) ops.push(row)
+        else if (row.id && row.kind) entries.set(row.id, row)
+      }
+    }
+  }
+  ops.sort((a, b) => a.at - b.at)
+  for (const op of ops) {
+    const e = entries.get(op.ref)
+    if (e && op.op === 'status') entries.set(op.ref, { ...e, status: op.status, updatedAt: op.at })
+  }
+  const now = await $.clock.now()
+  const by = {}
+  for (const e of entries.values()) {
+    if (e.kind !== 'waiting' || e.status !== 'active' || now - (e.updatedAt || e.at) > WAITING_TTL_MS) continue
+    const p = e.project || 'every project'
+    by[p] = (by[p] || 0) + 1
+  }
+  return by
+}
+
+// Sends the counts when they change (the bridge keeps the newest for pages that connect later)
+async function sendWaiting($, force) {
+  const by = await readWaiting($)
+  const key = JSON.stringify(by)
+  if (key === lastWaiting && !force) return
+  lastWaiting = key
+  emit($, 'waiting', { projects: by, count: Object.values(by).reduce((a, b) => a + b, 0) })
 }
 
 async function healthy($) {
@@ -128,6 +203,7 @@ async function openPage($) {
 export function register(on, options) {
   port = Number(options && options.port) || DEFAULT_PORT
   base = 'http://127.0.0.1:' + port
+  brainDir = String((options && options.brainDir) || '').replace(/\\/g, '/')
 
   on('session.start', async ($, e, next) => {
     lane = laneFor(await $.session.root(), await $.session.id())
@@ -137,6 +213,10 @@ export function register(on, options) {
       $.ui.log('undertone: could not add /undertone: ' + (err && err.message ? err.message : err))
     }
     emit($, 'session.start')
+    // A heartbeat, so a session that closes without saying goodbye leaves the page within minutes
+    $.clock.every(HEARTBEAT_MS, () => emit($, 'alive'))
+    $.clock.after(1500, () => sendWaiting($, true))
+    $.clock.every(WAITING_EVERY_MS, () => sendWaiting($))
     return next(e)
   })
 
@@ -161,6 +241,14 @@ export function register(on, options) {
     return next(e)
   })
 
+  // Claude Code asking for you: a permission prompt, or idle and waiting for input
+  on('classic.Notification', async ($, e, next) => {
+    const kind = String(e.notification_type || '') + ' ' + String(e.message || '')
+    const reason = /permission|elicitation|approve/i.test(kind) ? 'permission' : /idle|waiting for your input/i.test(kind) ? 'idle' : null
+    if (reason) emit($, 'attention', { reason })
+    return next(e)
+  })
+
   on('tool.call', async ($, e, next) => {
     // coter-kit's own tools answer without calling next, so read them on the way in
     if (e.tool === CHECKLIST_TOOL && Array.isArray(e.items)) {
@@ -171,6 +259,8 @@ export function register(on, options) {
         if (n && n.kind === 'waiting') emit($, 'waiting.open')
         else if (n && n.kind === 'decision' && n.resolves) emit($, 'waiting.resolve')
       }
+      // coter-kit writes the note after this call; read the new counts once it has
+      $.clock.after(2000, () => sendWaiting($))
     }
 
     const result = await next(e)

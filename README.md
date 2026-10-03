@@ -1,8 +1,6 @@
 # undertone
 
-Your Claude Code sessions, played as music. Each session is a voice, every tool call is a note, a commit resolves the chord, and a broken build holds a sour note until it's green.
-
-It's generative lofi/downtempo, synthesized live in the browser with [Tone.js](https://tonejs.github.io/). There are no samples and nothing to install beyond Node.
+Your Claude Code sessions, played as music, and a way for them to tell you what needs you without you looking. Each session is a voice with its own three-note call, every tool call is a note, a commit resolves the chord, a broken build holds a sour note, and every question waiting on you hums underneath until you answer.
 
 ## Quick start
 
@@ -10,47 +8,66 @@ It's generative lofi/downtempo, synthesized live in the browser with [Tone.js](h
 npm start
 ```
 
-Then open http://127.0.0.1:4747 and press Play. With the mod installed, every Claude Code session shows up as a lane. Without it, turn on **Demo sessions** or use the jam deck.
+Then open http://127.0.0.1:4747 and press Play. From inside Claude Code, `/undertone` does the same thing: it starts the bridge if it isn't running and opens the page.
 
-From inside Claude Code, `/undertone` does the same thing: it starts the bridge if it isn't running and opens the page.
+## What needs you, by ear
+
+| You hear | It means |
+| :- | :- |
+| A session's call ending on a rising, held note | That session needs you. A permission prompt asks again every minute (three times at most); an idle session asks once |
+| A session's call settling on the chord's root | That session finished its turn: your move |
+| A low drone that grows | Questions waiting on you, counted from coter-kit's `waiting` notes in every project you have on |
+| A sour, trembling tritone over every chord | A build is broken: a failing test, build, typecheck or lint, or coter-kit's checks blocking a stop |
+
+Each session's call comes from its id, so after a while you know who's calling. Everything else is texture: tool calls are notes in the session's voice (reads low, edits on chord tones, commands high), drums fade in while Claude works, a commit resolves the progression home with a bell, a checklist step climbs a bell, and a fixed build slides the sour note into the chord.
+
+## Sound engines
+
+Pick one at the top of the page. The page conducts in every case (harmony, timing, who plays what), so you can switch mid-song and compare.
+
+| Engine | What it is | Runs | Control for Claude |
+| :- | :- | :- | :- |
+| **Synth** | Tone.js, everything synthesized: FM keys, saw pads, membrane drums | Anywhere, also the published page | Full, but every sound is hand-built in the browser |
+| **Sampled** | Real recordings via smplr: Wurlitzer, vibraphone, nylon guitar, Mellotron strings, upright bass, LinnDrum | Local page (fetches samples) | Pick and layer instruments; little sound design |
+| **Strudel** | Strudel's sound engine (superdough): Salamander piano, VCSL kalimba, vibes, harp, an MPC60 kit, effects on every note | Local page (fetches sample banks) | Per-note effects and a big library |
+| **SuperCollider** | Native synthesis: Karplus-Strong plucks, modal bells, FM Rhodes, analog-style drums, through your computer's audio | Local page, with SuperCollider installed | The most: synths and effects written as code in `sc/undertone.scd` |
+
+SuperCollider is started by the bridge (`sclang` running `sc/undertone.scd`) the first time you pick it. It boots on your default output device, using an output-only device for input as well, so it never asks macOS for the microphone. If you switch outputs (say, to headphones), stop the bridge and start it again so SuperCollider picks up the new device. Install it with `brew install --cask supercollider`.
+
+## Projects
+
+The **Projects** panel lists every project with a running session or questions waiting on you. Untick one to silence it: its sessions stop playing, its broken builds and open questions drop out of the mix. The lead project sets the key and tempo; **Auto** follows the busiest project of the last three minutes and holds still when everything is quiet. Each project can keep its own mood (jobsnearme defaults to bright D major, ourPlace to a warm E♭, Iron Veil to D minor with war drums, wallstbets to A dorian with a ticking hat, anything else to F major). The page remembers your picks.
 
 ## How it fits together
 
 ```
-Claude Code session ──(mod: hooks/register.js)──▶ bridge (127.0.0.1:4747) ──SSE──▶ page (web/index.html)
-Claude Code session ──┘                                                            Tone.js synths + score
+Claude Code session ──(mod: hooks/register.js)──▶ bridge (127.0.0.1:4747) ──SSE──▶ page (web/index.html): the conductor
+Claude Code session ──┘                              │                                 │
+coter-kit's brain (open questions) ─────────────────┘                                 ├─▶ Synth / Sampled / Strudel (in the page)
+                                                     bridge ◀── notes ─────────────────┘
+                                                        └──OSC──▶ SuperCollider (sc/undertone.scd)
 ```
 
 | Part | What it is |
 | :- | :- |
-| `hooks/register.js` | The mod, a plugin of function hooks like coter-kit. It turns session events into small JSON events and posts them to the bridge. |
-| `bridge/server.mjs` | A zero-dependency Node server on 127.0.0.1. It serves the page and relays events to it over server-sent events. |
-| `web/index.html` | The music engine and the score. The same file is published as a claude.ai artifact, where it runs the demo. |
+| `hooks/register.js` | The mod, a plugin of function hooks like coter-kit. It turns session events into small JSON events, sends a heartbeat every minute, and counts coter-kit's open questions per project. |
+| `bridge/server.mjs` | A zero-dependency Node server on 127.0.0.1. It serves the page, relays events over server-sent events, drops sessions silent for three minutes, and talks OSC to SuperCollider. |
+| `web/index.html` | The conductor and the score. The same file is published as a claude.ai artifact, where it runs the demo on the Synth engine. |
+| `web/engines/*.js` | The engines. Each takes the same calls (`pad`, `bass`, `voice`, `drum`, `bell`, `sour`, `drone`, `texture`, `energy`); `common.js` describes them. |
+| `sc/undertone.scd` | SuperCollider's synths, effects and OSC handlers. |
 | `tests/undertone.test.ts` | Mod tests; run them with `claude plugin test .` |
-
-## What you hear
-
-| Event | Comes from | Sound |
-| :- | :- | :- |
-| A session starts | session start | A new voice joins: keys, pluck, mallet, cello in arrival order. A worktree plays as `project · worktree`. |
-| Tool call | every tool call | A note in that voice. Reads sit low, edits land on chord tones, commands ride high. |
-| Prompt | you send a message | A three-note pickup |
-| Claude is working | turn start / end | Drums fade in; all quiet thins back to pads and tape hiss |
-| Commit / push | `git commit` / `git push` in Bash | The progression resolves to the home chord, with a bell |
-| Build breaks | a failing test, build, typecheck or lint command; coter-kit's checks blocking a stop | A sour tritone holds over every chord |
-| Build fixed | the same kind of check passing | The sour note slides into the chord |
-| Checklist step | coter-kit's `checklist` tool | A bell climbs a step; a finished list lands home |
-| Waiting on you | coter-kit's `waiting` notes | A low drone that grows with each open question |
-
-The mood follows the busiest project: jobsnearme plays in D major, ourPlace in a warm E♭, Iron Veil in D minor with war drums, wallstbets in A dorian with a ticking hat, everything else in F major. Pick one by hand under **Mix**.
 
 ## coter-kit
 
-undertone is a sibling mod, not part of coter-kit, so it never touches coter-kit's code. It listens for coter-kit's `checklist` and `remember` tool calls and its checks' stop blocks. Whether it sees them depends on the plugin order: coter-kit answers its own tools without passing them on, so undertone has to load above it.
+undertone is a sibling mod: it never touches coter-kit's code. It hears coter-kit's `checklist` and `remember` calls, its checks' stop blocks, and reads the brain's journal (`~/.claude/coter-brain`, or the `brainDir` setting) the way coter-kit does to count what's waiting on you. It's listed in coter-kit's marketplace, so it installs alongside it:
+
+```bash
+claude plugin install undertone@coter-kit
+```
 
 ## Privacy
 
-Only event types, tool names (an MCP tool's server prefix stripped) and the project's folder name leave the session. Prompt text, file paths and command lines never do. The bridge listens on 127.0.0.1 only, keeps only the fields the page reads, and refuses posts without a JSON content type, so a web page can't post to it without a CORS preflight it never answers.
+Event types, tool names (an MCP tool's server prefix stripped), project folder names and the number of open questions per project leave the session. Prompt text, file paths, command lines and the questions themselves never do. The bridge listens on 127.0.0.1 only, keeps only the fields the page reads, and refuses posts without a JSON content type, so a web page can't post to it without a CORS preflight it never answers.
 
 ## Commands
 
@@ -63,14 +80,9 @@ Only event types, tool names (an MCP tool's server prefix stripped) and the proj
 
 A bridge started by `/undertone` lives as long as that session. For one that outlives sessions, run `npm start` in a terminal.
 
-## Install the mod
+## Settings
 
-```bash
-claude plugin marketplace add coterboat/undertone
-```
-
-```bash
-claude plugin install undertone@undertone
-```
-
-The bridge port is the plugin's `port` setting (default 4747).
+| Setting | Default | |
+| :- | :- | :- |
+| `port` | 4747 | The bridge's port on 127.0.0.1 |
+| `brainDir` | `~/.claude/coter-brain` | Where coter-kit's brain lives |

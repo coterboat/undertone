@@ -1,6 +1,6 @@
 import { expect, mock, test } from 'claude-code/testing'
 
-type Opts = { root?: string; up?: boolean; stopBlocks?: () => boolean }
+type Opts = { root?: string; up?: boolean; stopBlocks?: () => boolean; brain?: Record<string, string> }
 
 // Stubs for everything undertone asks Claude Code for. The bridge is a flag: `up`
 // answers /health, and every POST to /event is recorded as the batch it carried.
@@ -11,7 +11,25 @@ function stubAll(on: any, opts: Opts = {}) {
   const state = { up: opts.up ?? true, fetches: 0 }
   const clock = mock.clock(on, { now: Date.now() })
 
-  on('env.get', () => ({ value: undefined }))
+  on('env.get', ($: any, e: any) => ({ value: e.name === 'HOME' ? '/home/me' : undefined }))
+  // coter-kit's brain, as journal files under /home/me/.claude/coter-brain/journal/<device>/
+  const brain = opts.brain ?? {}
+  const JOURNAL = '/home/me/.claude/coter-brain/journal'
+  on('fs.list', ($: any, e: any) => {
+    const dir = String(e.path).replace(/\\/g, '/').replace(/\/$/, '')
+    const kids = new Map<string, string>()
+    for (const file of Object.keys(brain)) {
+      const full = JOURNAL + '/' + file
+      if (!full.startsWith(dir + '/')) continue
+      const rest = full.slice(dir.length + 1)
+      kids.set(rest.split('/')[0], rest.includes('/') ? 'dir' : 'file')
+    }
+    return { value: [...kids].map(([name, kind]) => ({ name, kind, size: 0, mtimeMs: 0, isLink: false })) }
+  })
+  on('fs.read', ($: any, e: any) => {
+    const file = String(e.path).replace(/\\/g, '/').slice(JOURNAL.length + 1)
+    return brain[file] != null ? { value: brain[file] } : { deny: 'no such file' }
+  })
   on('session.root', () => ({ value: opts.root ?? '/work/jobsnearme' }))
   on('session.id', () => ({ value: 'a1b2c3d4-e5f6' }))
   on('session.start', () => ({ cwd: opts.root ?? '/work/jobsnearme' }))
@@ -36,6 +54,7 @@ function stubAll(on: any, opts: Opts = {}) {
     return { code: 0, signal: null }
   })
   on('classic.Stop', () => (opts.stopBlocks && opts.stopBlocks() ? { block: 'Automatic checks failed' } : {}))
+  on('classic.Notification', () => ({}))
   on('prompt.submit', ($: any, e: any) => ({ text: e.text }))
   on('turn.start', ($: any, e: any) => ({ turnId: e.turnId }))
   on('turn.complete', () => ({ text: '' }))
@@ -162,4 +181,48 @@ test('with no bridge running, events are dropped and it only retries every 15 se
   await $.tool.call({ tool: 'Read', file_path: '/x' })
   await clock.advance(200)
   expect(state.fetches).toBe(afterFirst + 1)
+})
+
+test('a session sends a heartbeat every minute, so a closed one leaves the page', async ($: any, on: any) => {
+  const { posted, clock } = stubAll(on)
+  await start($, clock)
+  await clock.advance(60_200)
+  await clock.advance(60_200)
+  expect(types(posted).filter((t) => t === 'alive')).toHaveLength(2)
+})
+
+test('a permission prompt or an idle wait becomes a call for you, without its text', async ($: any, on: any) => {
+  const { posted, clock } = stubAll(on)
+  await start($, clock)
+  await $.classic.Notification({ message: 'Claude needs your permission to use Bash', notification_type: 'permission_prompt' })
+  await $.classic.Notification({ message: 'Claude is waiting for your input', notification_type: 'idle_prompt' })
+  await $.classic.Notification({ message: 'Signed in', notification_type: 'auth_success' })
+  await clock.advance(200)
+  expect(posted.filter((e) => e.type === 'attention').map((e) => e.reason)).toEqual(['permission', 'idle'])
+  expect(JSON.stringify(posted)).not.toContain('Claude needs your permission')
+})
+
+test("the drone hears coter-kit's open questions per project, answered and expired ones left out", async ($: any, on: any) => {
+  const now = Date.now()
+  const row = (o: any) => JSON.stringify(o)
+  const brain = {
+    'pc/2026-10-02-a.jsonl': [
+      row({ id: 'q1', at: now - 3_600_000, project: 'jobsnearme', kind: 'waiting', text: 'Q15 302 ok', status: 'active' }),
+      row({ id: 'q2', at: now - 3_600_000, project: 'jobsnearme', kind: 'waiting', text: 'Q16 sign FS-310', status: 'active' }),
+      row({ id: 'q3', at: now - 3_600_000, project: 'coter-kit', kind: 'waiting', text: 'pick the fixes', status: 'active' }),
+      row({ id: 'q4', at: now - 40 * 86_400_000, project: 'ourplace', kind: 'waiting', text: 'too old', status: 'active' }),
+      row({ id: 'f1', at: now, project: 'jobsnearme', kind: 'fact', text: 'not a question', status: 'active' }),
+    ].join('\n'),
+    'mac/2026-10-03-b.jsonl': row({ op: 'status', ref: 'q2', status: 'superseded', at: now - 60_000 }),
+  }
+  const { posted, clock } = stubAll(on, { brain })
+  await start($, clock)
+  await clock.advance(1_800)
+  const waiting = posted.filter((e) => e.type === 'waiting')
+  expect(waiting).toHaveLength(1)
+  expect(waiting[0]).toMatchObject({ projects: { jobsnearme: 1, 'coter-kit': 1 }, count: 2 })
+  expect(JSON.stringify(posted)).not.toContain('Q15')
+  // Unchanged counts aren't sent again
+  await clock.advance(120_500)
+  expect(posted.filter((e) => e.type === 'waiting')).toHaveLength(1)
 })
