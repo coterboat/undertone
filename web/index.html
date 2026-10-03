@@ -1,0 +1,1376 @@
+<title>undertone</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,800&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: a tape-desk. Wordmark + transport on top, the scrolling score as the hero,
+   then three desk panels (lanes, jam deck, mix) and the event map. Dark-first. */
+:root {
+  --bg: #141119;
+  --panel: #1c1823;
+  --canvas: #17131d;
+  --line: #2e2839;
+  --grid: #2a2434;
+  --fg: #ede7f3;
+  --muted: #9b92ab;
+  --accent: #f0b35b;
+  --accent-ink: #1b1408;
+  --lane1: #f0b35b;
+  --lane2: #5ec7b6;
+  --lane3: #ec809b;
+  --lane4: #aa9cf6;
+  --fail: #ff6a5c;
+  --pass: #7dd892;
+  --gold: #ffd77e;
+  --drone: #7f6bd8;
+  --font-display: "Bricolage Grotesque", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-body: "Bricolage Grotesque", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  color-scheme: dark;
+}
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    --bg: #eceef2; --panel: #f9fafb; --canvas: #fbfbfc; --line: #d5d8df; --grid: #e3e5ea;
+    --fg: #1b1922; --muted: #5c6070; --accent: #b9701a; --accent-ink: #fff8ee;
+    --lane1: #b9701a; --lane2: #12877a; --lane3: #c2416a; --lane4: #6553d4;
+    --fail: #d63a2c; --pass: #23894a; --gold: #a87c12; --drone: #6a56cc;
+    color-scheme: light;
+  }
+}
+:root[data-theme="light"] {
+  --bg: #eceef2; --panel: #f9fafb; --canvas: #fbfbfc; --line: #d5d8df; --grid: #e3e5ea;
+  --fg: #1b1922; --muted: #5c6070; --accent: #b9701a; --accent-ink: #fff8ee;
+  --lane1: #b9701a; --lane2: #12877a; --lane3: #c2416a; --lane4: #6553d4;
+  --fail: #d63a2c; --pass: #23894a; --gold: #a87c12; --drone: #6a56cc;
+  color-scheme: light;
+}
+
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { margin: 0; }
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font: 15px/1.5 var(--font-body);
+  -webkit-font-smoothing: antialiased;
+}
+.wrap {
+  max-width: 1180px;
+  margin: 0 auto;
+  padding-inline: clamp(16px, 3vw, 32px);
+  padding-block: 28px 56px;
+  display: grid;
+  gap: 22px;
+}
+button, select, input { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* top */
+.top { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 18px 32px; }
+.brand { min-width: 0; max-width: 560px; }
+h1 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: clamp(44px, 8vw, 84px);
+  line-height: 0.9;
+  letter-spacing: -0.045em;
+  font-variation-settings: "opsz" 96;
+}
+h1 .under { color: var(--muted); font-weight: 400; }
+.tag { margin: 12px 0 0; color: var(--muted); max-width: 52ch; text-wrap: pretty; }
+.transport { display: flex; flex-wrap: wrap; align-items: center; gap: 16px 22px; }
+.play {
+  display: inline-flex; align-items: center; gap: 10px;
+  height: 52px; padding: 0 22px 0 18px;
+  border: 0; border-radius: 26px;
+  background: var(--accent); color: var(--accent-ink);
+  font-weight: 600; font-size: 17px; cursor: pointer;
+  transition: transform .12s ease, filter .12s ease;
+}
+.play:hover { filter: brightness(1.06); }
+.play:active { transform: scale(.97); }
+.play svg { width: 18px; height: 18px; }
+.readout { display: grid; grid-template-columns: repeat(4, auto); gap: 4px 20px; margin: 0; }
+.readout div { display: grid; gap: 1px; min-width: 0; }
+.readout dt { font: 500 10px/1.2 var(--font-mono); text-transform: uppercase; letter-spacing: .12em; color: var(--muted); }
+.readout dd { margin: 0; font: 500 15px/1.3 var(--font-mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+#src.live { color: var(--pass); }
+
+/* score */
+.score { position: relative; }
+#score {
+  display: block; width: 100%;
+  height: clamp(250px, 36vw, 380px);
+  border-radius: 16px;
+  border: 1px solid var(--line);
+  background: var(--canvas);
+}
+.legend { display: flex; flex-wrap: wrap; gap: 6px 18px; margin: 10px 2px 0; padding: 0; list-style: none; font: 12px/1.4 var(--font-mono); color: var(--muted); }
+.legend li { display: inline-flex; align-items: center; gap: 7px; }
+.legend i { display: inline-block; width: 14px; height: 4px; border-radius: 2px; }
+
+/* desk */
+.desk { display: grid; grid-template-columns: 1.15fr 1.35fr 0.9fr; gap: 16px; align-items: start; }
+@media (max-width: 980px) { .desk { grid-template-columns: 1fr 1fr; } .mix { grid-column: 1 / -1; } }
+@media (max-width: 640px) { .desk { grid-template-columns: 1fr; } .readout { grid-template-columns: repeat(2, auto); } }
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 16px; min-width: 0; display: grid; gap: 12px; }
+h2 { margin: 0; font: 500 11px/1.2 var(--font-mono); text-transform: uppercase; letter-spacing: .14em; color: var(--muted); }
+.hint { margin: -4px 0 0; color: var(--muted); font-size: 13px; }
+
+.lanes ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.lane { display: grid; grid-template-columns: 10px minmax(0, 1fr) auto; grid-template-rows: auto auto; gap: 6px 10px; align-items: center; padding: 10px 10px 10px 12px; border-radius: 10px; background: color-mix(in oklab, var(--c) 7%, transparent); }
+.lane .sw { grid-row: 1 / 3; width: 10px; height: 100%; min-height: 34px; border-radius: 5px; background: var(--c); }
+.lane .who { min-width: 0; display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; }
+.lane .who strong { font-weight: 600; overflow-wrap: anywhere; }
+.lane .who span { font: 12px/1.3 var(--font-mono); color: var(--muted); }
+.lane .chips { grid-column: 2; display: flex; flex-wrap: wrap; gap: 5px; align-items: center; }
+.chip { font: 500 11px/1 var(--font-mono); padding: 4px 7px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); }
+.chip.on { color: var(--c); border-color: color-mix(in oklab, var(--c) 50%, transparent); }
+.chip.fail { color: var(--fail); border-color: color-mix(in oklab, var(--fail) 55%, transparent); }
+.energy { width: 64px; height: 5px; border-radius: 3px; background: var(--grid); overflow: hidden; }
+.energy i { display: block; height: 100%; background: var(--c); transition: width .4s ease; }
+.mute { grid-column: 3; grid-row: 1 / 3; border: 1px solid var(--line); background: transparent; border-radius: 8px; padding: 6px 10px; font-size: 13px; cursor: pointer; color: var(--muted); }
+.mute[aria-pressed="true"] { color: var(--fail); border-color: color-mix(in oklab, var(--fail) 50%, transparent); }
+.empty { color: var(--muted); font-size: 14px; margin: 0; }
+
+.targets { display: flex; flex-wrap: wrap; gap: 6px; }
+.target { border: 1px solid var(--line); background: transparent; border-radius: 999px; padding: 5px 11px; font-size: 13px; cursor: pointer; color: var(--muted); }
+.target[aria-checked="true"] { color: var(--fg); border-color: var(--c, var(--accent)); background: color-mix(in oklab, var(--c, var(--accent)) 14%, transparent); }
+.pads { display: grid; grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); gap: 8px; }
+.pad {
+  display: grid; gap: 2px; text-align: left;
+  border: 1px solid var(--line); background: var(--canvas);
+  border-radius: 10px; padding: 10px 11px; cursor: pointer;
+  transition: border-color .12s ease, transform .08s ease;
+}
+.pad:hover { border-color: var(--muted); }
+.pad:active, .pad.hit { transform: translateY(1px); border-color: var(--accent); }
+.pad b { font-weight: 600; font-size: 14px; }
+.pad span { font: 11px/1.3 var(--font-mono); color: var(--muted); }
+.pad.bad b { color: var(--fail); }
+.pad.good b { color: var(--pass); }
+.pad.gold b { color: var(--gold); }
+
+.mix label { display: grid; gap: 6px; font-size: 13px; color: var(--muted); }
+.mix select, .mix input[type="range"] { width: 100%; }
+.mix select { background: var(--canvas); border: 1px solid var(--line); border-radius: 8px; padding: 7px 8px; color: var(--fg); }
+.mix input[type="range"] { accent-color: var(--accent); }
+.toggle { display: flex !important; grid-template-columns: none; align-items: center; justify-content: space-between; gap: 10px; color: var(--fg) !important; font-size: 14px !important; }
+.toggle input { width: 18px; height: 18px; accent-color: var(--accent); }
+.bridge { margin: 0; font-size: 13px; color: var(--muted); border-top: 1px solid var(--line); padding-top: 12px; }
+.bridge code { font: 12px var(--font-mono); color: var(--fg); background: var(--canvas); border: 1px solid var(--line); padding: 1px 5px; border-radius: 5px; overflow-wrap: anywhere; }
+
+/* event map */
+.map { display: grid; gap: 10px; }
+.tablewrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 14px; background: var(--panel); }
+table { border-collapse: collapse; width: 100%; min-width: 620px; font-size: 14px; }
+th, td { text-align: left; padding: 10px 14px; border-bottom: 1px solid var(--line); vertical-align: top; }
+tr:last-child td { border-bottom: 0; }
+th { font: 500 10px/1.2 var(--font-mono); text-transform: uppercase; letter-spacing: .12em; color: var(--muted); }
+td:first-child { font-weight: 600; white-space: nowrap; }
+td:nth-child(2) { color: var(--muted); font: 12.5px/1.45 var(--font-mono); }
+
+@media (prefers-reduced-motion: reduce) { .play, .pad, .energy i { transition: none; } }
+</style>
+
+<div class="wrap">
+  <header class="top">
+    <div class="brand">
+      <h1><span class="under">under</span>tone</h1>
+      <p class="tag">Your build, played as music. Each Claude Code session is a voice, every tool call is a note, a commit resolves the chord, and a broken build holds a sour note until it's green.</p>
+    </div>
+    <div class="transport">
+      <button id="play" class="play" type="button" aria-pressed="false">
+        <svg id="playIcon" viewBox="0 0 20 20" aria-hidden="true"><path d="M5 3.5v13l11-6.5z" fill="currentColor"/></svg>
+        <span id="playText">Play</span>
+      </button>
+      <dl class="readout">
+        <div><dt>Source</dt><dd id="src">Demo</dd></div>
+        <div><dt>Key</dt><dd id="key">F major</dd></div>
+        <div><dt>Tempo</dt><dd id="bpm">82</dd></div>
+        <div><dt>Chord</dt><dd id="chord">B♭maj9</dd></div>
+      </dl>
+    </div>
+  </header>
+
+  <section class="score" aria-label="Score">
+    <canvas id="score" role="img" aria-label="Scrolling score. Each row is a session; marks are tool calls, commits, failing builds and open questions."></canvas>
+    <ul class="legend">
+      <li><i style="background: var(--lane1)"></i>tool call</li>
+      <li><i style="background: var(--gold)"></i>commit, the chord lands home</li>
+      <li><i style="background: var(--fail)"></i>build failing</li>
+      <li><i style="background: var(--drone)"></i>questions waiting on you</li>
+    </ul>
+  </section>
+
+  <section class="desk">
+    <div class="panel lanes">
+      <h2>Lanes</h2>
+      <ul id="laneList"></ul>
+      <p id="laneEmpty" class="empty" hidden>No sessions yet. Turn on the demo, add a lane in the jam deck, or start a Claude Code session with the undertone mod.</p>
+    </div>
+
+    <div class="panel deck">
+      <h2>Jam deck</h2>
+      <p class="hint">Fire session events by hand. Pick a lane, then hit a pad.</p>
+      <div id="targets" class="targets" role="radiogroup" aria-label="Lane to play into"></div>
+      <div class="pads">
+        <button class="pad" type="button" data-ev="tool" data-kind="read"><b>Read</b><span>low note</span></button>
+        <button class="pad" type="button" data-ev="tool" data-kind="edit"><b>Edit</b><span>chord tone</span></button>
+        <button class="pad" type="button" data-ev="tool" data-kind="run"><b>Run</b><span>high note</span></button>
+        <button class="pad" type="button" data-ev="prompt"><b>Prompt</b><span>pickup phrase</span></button>
+        <button class="pad gold" type="button" data-ev="commit"><b>Commit</b><span>lands home</span></button>
+        <button class="pad bad" type="button" data-ev="fail"><b>Break build</b><span>sour note</span></button>
+        <button class="pad good" type="button" data-ev="pass"><b>Fix build</b><span>resolves it</span></button>
+        <button class="pad" type="button" data-ev="checklist"><b>Step done</b><span>bell climbs</span></button>
+        <button class="pad" type="button" data-ev="waiting.open"><b>Ask owner</b><span>drone +1</span></button>
+        <button class="pad" type="button" data-ev="waiting.resolve"><b>Answered</b><span>drone −1</span></button>
+      </div>
+    </div>
+
+    <div class="panel mix">
+      <h2>Mix</h2>
+      <label for="mood">Mood
+        <select id="mood">
+          <option value="auto">Auto: follows the busiest project</option>
+          <option value="lofi">Late shift · F major</option>
+          <option value="bright">Daylight · D major (jobsnearme)</option>
+          <option value="warm">Warm room · E♭ major (ourPlace)</option>
+          <option value="dusk">Iron Veil · D minor</option>
+          <option value="ticker">Ticker · A dorian (wallstbets)</option>
+        </select>
+      </label>
+      <label for="vol">Volume
+        <input id="vol" type="range" min="-36" max="0" step="1" value="0">
+      </label>
+      <label class="toggle" for="demo">Demo sessions <input id="demo" type="checkbox"></label>
+      <label class="toggle" for="drums">Drums follow the work <input id="drums" type="checkbox" checked></label>
+      <label class="toggle" for="vinyl">Tape and vinyl <input id="vinyl" type="checkbox" checked></label>
+      <p id="bridgeNote" class="bridge"></p>
+    </div>
+  </section>
+
+  <section class="map">
+    <h2>What you'll hear</h2>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>Event</th><th>Comes from</th><th>What you hear</th></tr></thead>
+        <tbody>
+          <tr><td>A session starts</td><td>session start</td><td>A new voice joins. Voices go keys, pluck, mallet, cello in arrival order.</td></tr>
+          <tr><td>Tool call</td><td>every tool call</td><td>A note in that session's voice. Reads sit low, edits land on chord tones, commands ride high.</td></tr>
+          <tr><td>You send a prompt</td><td>prompt submit</td><td>A three-note pickup in that voice.</td></tr>
+          <tr><td>Claude is working</td><td>turn start / end</td><td>Drums fade in. When every session goes quiet, it thins back to pads and tape hiss.</td></tr>
+          <tr><td>Commit</td><td><code>git commit</code> in Bash</td><td>The progression resolves to the home chord, with a bell.</td></tr>
+          <tr><td>Build breaks</td><td>failing test, build or typecheck; coter-kit checks blocking a stop</td><td>A sour tritone holds over every chord.</td></tr>
+          <tr><td>Build fixed</td><td>the same kind of check passes</td><td>The sour note slides into the chord and rings out.</td></tr>
+          <tr><td>Checklist step</td><td>coter-kit checklist</td><td>A bell climbs one step. A finished list lands home.</td></tr>
+          <tr><td>Waiting on you</td><td>coter-kit waiting notes</td><td>A low drone, one layer per open question, under everything until you answer.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/tone/15.5.43/Tone.js"></script>
+<script>
+(() => {
+'use strict';
+
+const qs = (s) => document.querySelector(s);
+const LIVE = location.protocol === 'http:' && /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname);
+const REDUCED = matchMedia('(prefers-reduced-motion: reduce)').matches;
+const wall = () => performance.now() / 1000;
+const rand = (a, b) => a + Math.random() * (b - a);
+const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+const hz = (m) => 440 * Math.pow(2, (m - 69) / 12);
+
+// ------------------------------------------------------------------ harmony
+
+const FLATS = ['C', 'D♭', 'D', 'E♭', 'E', 'F', 'G♭', 'G', 'A♭', 'A', 'B♭', 'B'];
+const SHARPS = ['C', 'C♯', 'D', 'D♯', 'E', 'F', 'F♯', 'G', 'G♯', 'A', 'A♯', 'B'];
+const QUALITY = {
+  maj9: [0, 4, 7, 11, 14], maj7: [0, 4, 7, 11], m9: [0, 3, 7, 10, 14], m7: [0, 3, 7, 10],
+  m11: [0, 3, 7, 10, 14, 17], '9sus4': [0, 5, 7, 10, 14], '6/9': [0, 4, 7, 9, 14], '9': [0, 4, 7, 10, 14],
+  'm(add9)': [0, 3, 7, 14],
+};
+
+// Each mood loops a progression that never quite resolves; a commit sends it home.
+const MOODS = {
+  lofi:   { label: 'F major',  tonic: 53, sharp: false, bpm: 82, swing: 0.14, scale: [0, 2, 4, 7, 9],  prog: [[5, 'maj9'], [4, 'm7'], [2, 'm9'], [7, '9sus4']], home: [0, 'maj9'], drums: 'lofi',   padHz: 900 },
+  bright: { label: 'D major',  tonic: 50, sharp: true,  bpm: 92, swing: 0.08, scale: [0, 2, 4, 7, 9],  prog: [[5, 'maj7'], [4, 'm7'], [2, 'm9'], [7, '9sus4']], home: [0, '6/9'],  drums: 'lofi',   padHz: 1400 },
+  warm:   { label: 'E♭ major', tonic: 51, sharp: false, bpm: 74, swing: 0.16, scale: [0, 2, 4, 7, 9],  prog: [[5, 'maj9'], [9, 'm9'], [2, 'm7'], [7, '9sus4']], home: [0, '6/9'],  drums: 'brush',  padHz: 800 },
+  dusk:   { label: 'D minor',  tonic: 50, sharp: false, bpm: 68, swing: 0.04, scale: [0, 3, 5, 7, 10], prog: [[8, 'maj7'], [5, 'm9'], [10, '9sus4'], [7, 'm7']], home: [0, 'm(add9)'], drums: 'war', padHz: 650 },
+  ticker: { label: 'A dorian', tonic: 45, sharp: true,  bpm: 100, swing: 0.06, scale: [0, 2, 3, 7, 9], prog: [[5, '9'], [3, 'maj7'], [10, 'maj7'], [7, 'm7']], home: [0, 'm11'],  drums: 'ticker', padHz: 1100 },
+};
+const moodFor = (project) => {
+  const p = String(project || '').toLowerCase();
+  if (/jobs|juvo/.test(p)) return 'bright';
+  if (/ourplace/.test(p)) return 'warm';
+  if (/xcom|iron|veil|godot/.test(p)) return 'dusk';
+  if (/wallst|bets|trad|alpaca/.test(p)) return 'ticker';
+  return 'lofi';
+};
+const noteName = (m, sharp) => (sharp ? SHARPS : FLATS)[((m % 12) + 12) % 12];
+const fold = (n, lo, hi) => { while (n < lo) n += 12; while (n > hi) n -= 12; return n; };
+
+function chordOf(mood, [deg, q]) {
+  const root = mood.tonic + deg;
+  const pcs = new Set(QUALITY[q].map((i) => (root + i) % 12));
+  const pad = [...new Set(QUALITY[q].map((i) => fold(root + i, 52, 76)))].sort((a, b) => a - b);
+  return { name: noteName(root, mood.sharp) + q, root, pcs, pad, bass: fold(root, 33, 45), q };
+}
+
+// Lane voices, in arrival order, each with its own register
+const TIMBRES = ['keys', 'pluck', 'mallet', 'cello'];
+const REG = { keys: [57, 79], pluck: [64, 88], mallet: [67, 91], cello: [41, 62] };
+
+function poolFor(mood, chord, timbre) {
+  const [lo, hi] = REG[timbre];
+  const scale = new Set(mood.scale.map((i) => (mood.tonic + i) % 12));
+  const out = [];
+  for (let n = lo; n <= hi; n++) if (scale.has(n % 12) || chord.pcs.has(n % 12)) out.push(n);
+  return out;
+}
+
+// ------------------------------------------------------------------ state
+
+const S = {
+  playing: false,
+  audio: null,          // the Tone graph, built on first Play
+  moodKey: 'lofi',
+  moodPick: 'auto',
+  pendingMood: null,
+  chordIdx: -1,
+  chord: null,
+  landHome: false,
+  step: 0,
+  waiting: 0,
+  drumsOn: true,
+  frozenAt: wall(),
+  target: null,
+};
+const lanes = new Map(); // id -> lane
+let laneSeq = 0;
+const vis = { notes: [], marks: [], chords: [], bars: [], waits: [{ t: wall() - 600, n: 0 }] };
+
+const mood = () => MOODS[S.moodKey];
+S.chord = chordOf(mood(), mood().prog[0]);
+
+// ------------------------------------------------------------------ audio
+
+async function buildAudio() {
+  await Tone.start();
+  const T = Tone.getTransport();
+  const ctx = Tone.getContext();
+  ctx.lookAhead = 0.12;
+
+  const out = new Tone.Gain(0);
+  const meter = new Tone.Meter({ smoothing: 0.6 });
+  const lim = new Tone.Limiter(-1.5).toDestination();
+  const comp = new Tone.Compressor({ threshold: -20, ratio: 3, attack: 0.02, release: 0.3 });
+  const air = new Tone.Filter({ frequency: 10500, type: 'lowpass', rolloff: -12 });
+  out.chain(air, comp, lim);
+  lim.connect(meter);
+
+  const wobble = new Tone.Vibrato({ frequency: 0.32, depth: 0.03 });
+  const music = new Tone.Gain(1);
+  music.chain(wobble, out);
+
+  const verb = new Tone.Reverb({ decay: 6.5, preDelay: 0.03, wet: 1 });
+  await verb.generate();
+  verb.connect(out);
+  const verbIn = new Tone.Gain(1).connect(verb);
+  const echo = new Tone.FeedbackDelay({ delayTime: '8n.', feedback: 0.36, wet: 1 });
+  const echoTone = new Tone.Filter(2600, 'lowpass');
+  echo.chain(echoTone, music);
+  echoTone.connect(new Tone.Gain(0.4).connect(verbIn));
+  const echoIn = new Tone.Gain(1).connect(echo);
+
+  const send = (node, { dry = 1, rv = 0, ec = 0, to = music } = {}) => {
+    node.connect(new Tone.Gain(dry).connect(to));
+    if (rv) node.connect(new Tone.Gain(rv).connect(verbIn));
+    if (ec) node.connect(new Tone.Gain(ec).connect(echoIn));
+    return node;
+  };
+
+  // Pad bed
+  const padFilter = new Tone.Filter({ frequency: mood().padHz, type: 'lowpass', rolloff: -24, Q: 0.4 });
+  const padChorus = new Tone.Chorus({ frequency: 0.5, delayTime: 4, depth: 0.55, wet: 0.5 }).start();
+  const pad = new Tone.PolySynth(Tone.Synth, {
+    oscillator: { type: 'fatsawtooth', count: 3, spread: 22 },
+    envelope: { attack: 2.2, decay: 1.5, sustain: 0.75, release: 4.5 },
+  });
+  pad.maxPolyphony = 16;
+  pad.volume.value = -23;
+  pad.chain(padFilter, padChorus);
+  send(padChorus, { dry: 1, rv: 0.55 });
+
+  // Bass
+  const bass = new Tone.MonoSynth({
+    oscillator: { type: 'triangle' },
+    filter: { Q: 1, type: 'lowpass', rolloff: -24 },
+    envelope: { attack: 0.01, decay: 0.5, sustain: 0.6, release: 0.8 },
+    filterEnvelope: { attack: 0.01, decay: 0.3, sustain: 0.3, release: 0.8, baseFrequency: 110, octaves: 2.2 },
+  });
+  bass.volume.value = -14;
+  send(bass, { dry: 1, rv: 0.04 });
+
+  // Bell: commits, checklist steps, resolutions
+  const bell = new Tone.PolySynth(Tone.FMSynth, {
+    harmonicity: 5.07, modulationIndex: 8,
+    oscillator: { type: 'sine' }, modulation: { type: 'sine' },
+    envelope: { attack: 0.001, decay: 2.2, sustain: 0, release: 2.2 },
+    modulationEnvelope: { attack: 0.001, decay: 0.8, sustain: 0, release: 0.4 },
+  });
+  bell.volume.value = -18;
+  send(bell, { dry: 0.9, rv: 0.6, ec: 0.25 });
+
+  // Drums, on their own bus so they can fade with the work
+  const drumBus = new Tone.Gain(0);
+  const drumTone = new Tone.Filter(7000, 'lowpass');
+  drumBus.chain(drumTone, out);
+  drumBus.connect(new Tone.Gain(0.12).connect(verbIn));
+  const kick = new Tone.MembraneSynth({ pitchDecay: 0.045, octaves: 5, envelope: { attack: 0.001, decay: 0.42, sustain: 0, release: 0.1 } });
+  kick.volume.value = -9;
+  kick.connect(drumBus);
+  const snareBand = new Tone.Filter({ frequency: 1700, type: 'bandpass', Q: 0.8 });
+  const snare = new Tone.NoiseSynth({ noise: { type: 'pink' }, envelope: { attack: 0.002, decay: 0.17, sustain: 0 } });
+  snare.volume.value = -11;
+  snare.chain(snareBand, drumBus);
+  const hatHp = new Tone.Filter(7500, 'highpass');
+  const hat = new Tone.NoiseSynth({ noise: { type: 'white' }, envelope: { attack: 0.001, decay: 0.035, sustain: 0 } });
+  hat.volume.value = -24;
+  hat.chain(hatHp, drumBus);
+  const tom = new Tone.MembraneSynth({ pitchDecay: 0.09, octaves: 2.5, envelope: { attack: 0.002, decay: 0.9, sustain: 0, release: 0.3 } });
+  tom.volume.value = -8;
+  tom.connect(drumBus);
+  tom.connect(new Tone.Gain(0.35).connect(verbIn));
+
+  // Tape hiss and vinyl crackle: a generated loop, no samples
+  const sr = ctx.sampleRate;
+  const len = Math.floor(sr * 6);
+  const buf = new Float32Array(len);
+  for (let i = 0; i < len; i++) buf[i] = (Math.random() * 2 - 1) * 0.006;
+  for (let i = Math.floor(sr * rand(0.02, 0.2)); i < len; i += Math.floor(sr * rand(0.015, 0.3))) {
+    const amp = Math.pow(Math.random(), 3) * 0.55 + 0.03;
+    const n = Math.floor(sr * 0.0016);
+    for (let k = 0; k < n && i + k < len; k++) buf[i + k] += amp * (Math.random() * 2 - 1) * Math.exp(-k / (n * 0.3));
+  }
+  const vinyl = new Tone.Player(Tone.ToneAudioBuffer.fromArray(buf));
+  vinyl.loop = true;
+  vinyl.volume.value = -21;
+  const vinylHp = new Tone.Filter(700, 'highpass');
+  const vinylGain = new Tone.Gain(1);
+  vinyl.chain(vinylHp, vinylGain, out);
+  vinyl.start();
+
+  // Waiting-on-you drone: a pedal on the tonic that grows with each open question
+  const droneGain = new Tone.Gain(0);
+  const droneBreath = new Tone.Gain(1);
+  const droneLfo = new Tone.LFO({ frequency: 0.06, min: 0.55, max: 1 }).start();
+  droneLfo.connect(droneBreath.gain);
+  const droneLp = new Tone.Filter(520, 'lowpass');
+  const drones = [
+    new Tone.Oscillator({ type: 'sine', frequency: hz(fold(mood().tonic, 26, 37)), volume: -4 }),
+    new Tone.Oscillator({ type: 'sine', frequency: hz(fold(mood().tonic, 38, 49)), detune: -5, volume: -10 }),
+    new Tone.Oscillator({ type: 'triangle', frequency: hz(fold(mood().tonic + 7, 38, 49)), detune: 4, volume: -14 }),
+  ];
+  for (const o of drones) { o.connect(droneLp); o.start(); }
+  droneLp.chain(droneGain, droneBreath);
+  send(droneBreath, { dry: 1, rv: 0.5 });
+
+  // The sour note: held while any lane's build is failing
+  const sourBand = new Tone.Filter({ frequency: 1500, type: 'bandpass', Q: 1.1 });
+  const sourTrem = new Tone.Tremolo({ frequency: 5.5, depth: 0.55 }).start();
+  const sour = new Tone.Synth({ oscillator: { type: 'sawtooth' }, envelope: { attack: 1.1, decay: 0.1, sustain: 1, release: 1.4 } });
+  sour.volume.value = -21;
+  sour.chain(sourBand, sourTrem);
+  send(sourTrem, { dry: 1, rv: 0.35 });
+
+  T.bpm.value = mood().bpm;
+  T.swing = mood().swing;
+  T.swingSubdivision = '16n';
+  new Tone.Loop((time) => tick(time), '16n').start(0);
+
+  S.audio = { T, ctx, out, meter, music, send, pad, padFilter, bass, bell, drumBus, kick, snare, hat, tom, vinyl, vinylGain, droneGain, drones, sour, sourOn: false, sourMidi: 0 };
+  for (const ln of lanes.values()) attachVoice(ln);
+  updateDrone();
+  window.undertone.audio = S.audio;
+}
+
+function makeVoice(timbre) {
+  const A = S.audio;
+  let v;
+  if (timbre === 'keys') {
+    v = new Tone.PolySynth(Tone.FMSynth, {
+      harmonicity: 3, modulationIndex: 1.5,
+      oscillator: { type: 'sine' }, modulation: { type: 'sine' },
+      envelope: { attack: 0.004, decay: 1.4, sustain: 0.12, release: 1.8 },
+      modulationEnvelope: { attack: 0.002, decay: 0.5, sustain: 0.1, release: 0.6 },
+    });
+    v.volume.value = -9;
+    const trem = new Tone.Tremolo({ frequency: 4.2, depth: 0.22 }).start();
+    v.connect(trem);
+    A.send(trem, { dry: 1, rv: 0.35, ec: 0.12 });
+  } else if (timbre === 'pluck') {
+    v = new Tone.PolySynth(Tone.Synth, { oscillator: { type: 'triangle' }, envelope: { attack: 0.003, decay: 0.28, sustain: 0, release: 0.35 } });
+    v.volume.value = -11;
+    const lp = new Tone.Filter(3200, 'lowpass');
+    v.connect(lp);
+    A.send(lp, { dry: 0.9, rv: 0.25, ec: 0.4 });
+  } else if (timbre === 'mallet') {
+    v = new Tone.PolySynth(Tone.FMSynth, {
+      harmonicity: 4, modulationIndex: 2.2,
+      oscillator: { type: 'sine' }, modulation: { type: 'sine' },
+      envelope: { attack: 0.001, decay: 0.7, sustain: 0, release: 0.7 },
+      modulationEnvelope: { attack: 0.001, decay: 0.15, sustain: 0, release: 0.2 },
+    });
+    v.volume.value = -9;
+    A.send(v, { dry: 1, rv: 0.4, ec: 0.15 });
+  } else {
+    v = new Tone.PolySynth(Tone.Synth, { oscillator: { type: 'fatsawtooth', count: 2, spread: 12 }, envelope: { attack: 0.18, decay: 0.6, sustain: 0.55, release: 1.6 } });
+    v.volume.value = -17;
+    const lp = new Tone.Filter(1100, 'lowpass');
+    v.connect(lp);
+    A.send(lp, { dry: 1, rv: 0.5 });
+  }
+  v.maxPolyphony = 10;
+  return v;
+}
+
+function attachVoice(ln) {
+  if (!S.audio || ln.voice) return;
+  ln.voice = makeVoice(ln.timbre);
+  ln.pool = poolFor(mood(), S.chord, ln.timbre);
+}
+
+const DUR = { keys: '8n', pluck: '16n', mallet: '16n', cello: '4n' };
+const VEL = { read: 0.38, edit: 0.62, run: 0.55, web: 0.5, agent: 0.5, other: 0.45, ambient: 0.3 };
+const AIM = { read: 0.15, edit: 0.5, run: 0.8, web: 0.92, agent: 0.62, other: 0.5 };
+
+function pickNote(ln, kind) {
+  const pool = ln.pool && ln.pool.length ? ln.pool : poolFor(mood(), S.chord, ln.timbre);
+  const n = pool.length - 1;
+  let idx = ln.idx == null ? Math.round(n / 2) : ln.idx;
+  if (AIM[kind] == null) idx += pick([-2, -1, -1, 1, 1, 2]);
+  else {
+    const goal = Math.round(n * AIM[kind]);
+    idx += clamp(goal - idx, -3, 3) + (Math.random() < 0.3 ? pick([-1, 1]) : 0);
+  }
+  idx = clamp(idx, 0, n);
+  if (kind === 'edit' || Math.random() < 0.35) {
+    let best = idx, gap = 99;
+    for (let i = 0; i <= n; i++) {
+      if (S.chord.pcs.has(pool[i] % 12) && Math.abs(i - idx) < gap) { gap = Math.abs(i - idx); best = i; }
+    }
+    idx = best;
+  }
+  ln.idx = idx;
+  return pool[idx];
+}
+
+// Audio time to the score's wall-clock time
+const toVis = (time) => wall() + (time - S.audio.ctx.currentTime);
+
+function playLane(ln, midi, time, vel, dur) {
+  if (!ln.voice || ln.muted) return;
+  const d = dur || DUR[ln.timbre];
+  ln.voice.triggerAttackRelease(hz(midi), d, time, vel);
+  vis.notes.push({ t: toVis(time), lane: ln.id, midi, vel, dur: Tone.Time(d).toSeconds() });
+}
+
+// ------------------------------------------------------------------ the clock
+
+function tick(time) {
+  const A = S.audio;
+  const s = S.step++;
+  const sib = s % 16;
+  const bar = Math.floor(s / 16);
+  const E = energy();
+
+  if (sib === 0) {
+    vis.bars.push(toVis(time));
+    if (bar % 2 === 0) changeChord(time);
+    const busy = [...lanes.values()].some((l) => l.busy);
+    A.drumBus.gain.rampTo(S.drumsOn && (busy || E > 0.35) ? 1 : 0, 2.5, time);
+    A.padFilter.frequency.rampTo(mood().padHz * (0.75 + E * 1.6), 2, time);
+  }
+
+  // Bass
+  const b = S.chord.bass;
+  if (sib === 0) A.bass.triggerAttackRelease(hz(b), '2n', time, 0.8);
+  else if (sib === 10 && Math.random() < 0.3 + E * 0.4) A.bass.triggerAttackRelease(hz(b + pick([7, 12])), '8n', time, 0.5);
+  else if (sib === 6 && E > 0.5 && Math.random() < 0.35) A.bass.triggerAttackRelease(hz(b), '16n', time, 0.42);
+
+  drums(sib, time, E);
+
+  for (const ln of lanes.values()) laneTick(ln, sib, time);
+}
+
+function drums(sib, time, E) {
+  const A = S.audio;
+  const style = mood().drums;
+  const hit = (syn, v) => syn.triggerAttackRelease('32n', time, v);
+  if (style === 'war') {
+    if (sib === 0) A.tom.triggerAttackRelease(hz(fold(mood().tonic, 33, 44)), '4n', time, 0.95);
+    if (sib === 7) A.tom.triggerAttackRelease(hz(fold(mood().tonic, 33, 44)), '8n', time, 0.45);
+    if (sib === 8) A.tom.triggerAttackRelease(hz(fold(mood().tonic - 5, 33, 44)), '4n', time, 0.8);
+    if (sib === 14 && Math.random() < 0.4) A.tom.triggerAttackRelease(hz(fold(mood().tonic, 33, 44)), '8n', time, 0.4);
+    if (sib === 12) hit(A.snare, 0.22);
+    if (E > 0.6 && sib % 4 === 2) hit(A.hat, 0.2);
+    return;
+  }
+  if (style === 'ticker') {
+    if (sib === 0 || sib === 8) A.kick.triggerAttackRelease('C1', '8n', time, 0.85);
+    if (sib === 11 && Math.random() < 0.4) A.kick.triggerAttackRelease('C1', '8n', time, 0.5);
+    if (sib === 4 || sib === 12) hit(A.snare, 0.55);
+    hit(A.hat, sib % 2 === 0 ? 0.36 : 0.16);
+    return;
+  }
+  const soft = style === 'brush' ? 0.55 : 1;
+  if (sib === 0) A.kick.triggerAttackRelease('C1', '8n', time, 0.9 * soft);
+  if (sib === 10) A.kick.triggerAttackRelease('C1', '8n', time, 0.7 * soft);
+  if (sib === 7 && E > 0.5 && Math.random() < 0.3) A.kick.triggerAttackRelease('C1', '8n', time, 0.45 * soft);
+  if (sib === 4 || sib === 12) hit(A.snare, 0.6 * soft);
+  if (sib === 15 && Math.random() < 0.15) hit(A.snare, 0.16 * soft);
+  if (sib % 2 === 0) hit(A.hat, rand(0.22, 0.42) * soft);
+  else if (Math.random() < E * 0.3) hit(A.hat, 0.13 * soft);
+}
+
+function laneTick(ln, sib, time) {
+  if (!ln.voice || ln.ended) return;
+  const grid = ln.queue.length > 3 ? 1 : 2;
+  if (sib % grid !== 0) return;
+  let kind = null;
+  if (ln.queue.length) kind = ln.queue.shift();
+  else if (ln.energy > 0.05 && Math.random() < ln.energy * 0.11 * (sib % 4 === 0 ? 1.6 : 0.6)) kind = 'ambient';
+  if (!kind) return;
+  playLane(ln, pickNote(ln, kind), time, (VEL[kind] || 0.4) * rand(0.85, 1.1));
+}
+
+function changeChord(time) {
+  const A = S.audio;
+  if (S.pendingMood && S.pendingMood !== S.moodKey) applyMood(S.pendingMood, time);
+  S.pendingMood = null;
+  const m = mood();
+  let home = false;
+  if (S.landHome) { S.chord = chordOf(m, m.home); S.landHome = false; home = true; }
+  else { S.chordIdx = (S.chordIdx + 1) % m.prog.length; S.chord = chordOf(m, m.prog[S.chordIdx]); }
+  const len = Tone.Time('2m').toSeconds();
+  A.pad.triggerAttackRelease(S.chord.pad.map(hz), len - 0.1, time, home ? 0.6 : 0.45);
+  for (const ln of lanes.values()) ln.pool = poolFor(m, S.chord, ln.timbre);
+  if (A.sourOn) retuneSour(time);
+  const name = S.chord.name;
+  vis.chords.push({ t: toVis(time), name, home });
+  Tone.getDraw().schedule(() => { qs('#chord').textContent = name; }, time);
+}
+
+function applyMood(key, time) {
+  const A = S.audio;
+  S.moodKey = key;
+  S.chordIdx = -1;
+  const m = mood();
+  A.T.bpm.rampTo(m.bpm, 4, time);
+  A.T.swing = m.swing;
+  A.drones[0].frequency.rampTo(hz(fold(m.tonic, 26, 37)), 3, time);
+  A.drones[1].frequency.rampTo(hz(fold(m.tonic, 38, 49)), 3, time);
+  A.drones[2].frequency.rampTo(hz(fold(m.tonic + 7, 38, 49)), 3, time);
+  Tone.getDraw().schedule(showMood, time);
+}
+
+// ------------------------------------------------------------------ phrases and held notes
+
+const nextBeat = () => S.audio.T.nextSubdivision('8n');
+
+function phrase(ln, notes, gap = '8n', vel = 0.5, synth) {
+  if (!S.playing || !S.audio) return;
+  const t0 = nextBeat();
+  const step = Tone.Time(gap).toSeconds();
+  notes.forEach((m, i) => {
+    const t = t0 + i * step;
+    if (synth) {
+      synth.triggerAttackRelease(hz(m), '4n', t, vel);
+      vis.notes.push({ t: toVis(t), lane: ln ? ln.id : null, midi: m, vel, dur: 0.3, bell: true });
+    } else if (ln) playLane(ln, m, t, vel);
+  });
+}
+
+function bellArp(up = true) {
+  const top = S.chord.pad.map((m) => m + 12).slice(-4);
+  phrase(null, up ? top : top.reverse(), '16n', 0.5, S.audio && S.audio.bell);
+}
+
+function sourMidi() { return fold(S.chord.root + 6, 66, 77); }
+
+function retuneSour(time) {
+  const A = S.audio;
+  A.sourMidi = sourMidi();
+  A.sour.frequency.rampTo(hz(A.sourMidi), 0.35, time);
+}
+
+function updateSour() {
+  const A = S.audio;
+  if (!A) return;
+  const failing = [...lanes.values()].some((l) => l.failing);
+  const now = Tone.now();
+  if (failing && !A.sourOn) {
+    A.sourOn = true;
+    A.sourMidi = sourMidi();
+    A.sour.triggerAttack(hz(A.sourMidi), now, 0.7);
+  } else if (!failing && A.sourOn) {
+    A.sourOn = false;
+    // Slide into the nearest chord tone above, then let it ring out with a bell
+    let target = A.sourMidi;
+    for (let k = 1; k <= 6; k++) if (S.chord.pcs.has((A.sourMidi + k) % 12)) { target = A.sourMidi + k; break; }
+    A.sour.frequency.rampTo(hz(target), 0.5, now);
+    A.sour.triggerRelease(now + 0.9);
+    A.bell.triggerAttackRelease([hz(target + 12), hz(target + 19)], '2n', now + 0.55, 0.45);
+    vis.notes.push({ t: toVis(now + 0.55), lane: null, midi: target + 12, vel: 0.6, dur: 0.6, bell: true });
+  }
+}
+
+function updateDrone() {
+  const A = S.audio;
+  const n = S.waiting;
+  vis.waits.push({ t: wall(), n });
+  if (A) A.droneGain.gain.rampTo(n ? 0.05 + 0.035 * Math.min(n, 6) : 0, 3);
+}
+
+// ------------------------------------------------------------------ lanes and events
+
+function laneColor(i) { return 'var(--lane' + ((i % 4) + 1) + ')'; }
+
+function ensureLane(e, source) {
+  const id = String(e.lane || 'jam');
+  let ln = lanes.get(id);
+  if (!ln) {
+    const n = laneSeq++;
+    ln = {
+      id, n, source: source || 'live',
+      project: String(e.project || 'session'),
+      label: String(e.label || e.project || 'session'),
+      timbre: TIMBRES[n % TIMBRES.length],
+      color: laneColor(n),
+      queue: [], energy: 0.15, busy: false, failing: false, muted: false,
+      done: 0, total: 0, idx: null, voice: null, pool: null, ended: false, last: wall(),
+      fails: [],
+    };
+    lanes.set(id, ln);
+    attachVoice(ln);
+    if (!S.target) S.target = id;
+    pickAutoMood();
+  } else if (ln.ended) {
+    ln.ended = false;
+    clearTimeout(ln.rmTimer);
+  }
+  return ln;
+}
+
+function removeLane(ln) {
+  ln.ended = true;
+  clearTimeout(ln.rmTimer);
+  ln.rmTimer = setTimeout(() => {
+    if (!ln.ended) return;
+    if (ln.voice) ln.voice.dispose();
+    lanes.delete(ln.id);
+    if (S.target === ln.id) S.target = lanes.keys().next().value || null;
+    renderLanes();
+  }, 6000);
+}
+
+const KIND_OF_TOOL = (tool) => {
+  const t = String(tool || '');
+  if (/^(Read|Grep|Glob|LS|NotebookRead)$/.test(t)) return 'read';
+  if (/^(Edit|Write|MultiEdit|NotebookEdit)$/.test(t)) return 'edit';
+  if (/^(Bash|PowerShell)$/.test(t)) return 'run';
+  if (/^(WebFetch|WebSearch)$/.test(t) || /browser|chrome/i.test(t)) return 'web';
+  if (/^(Agent|Task)$/.test(t)) return 'agent';
+  return 'other';
+};
+
+function ingest(e, source) {
+  if (!e || typeof e.type !== 'string') return;
+  if (e.type === 'waiting') { S.waiting = Math.max(0, Number(e.count) || 0); updateDrone(); return; }
+  const ln = ensureLane(e, source);
+  ln.last = wall();
+  const kick = (x) => { ln.energy = clamp(ln.energy + x, 0, 1); };
+  const m = () => ln.pool || poolFor(mood(), S.chord, ln.timbre);
+  switch (e.type) {
+    case 'session.start':
+      kick(0.2);
+      phrase(ln, [m()[Math.floor(m().length / 2)]], '4n', 0.4);
+      break;
+    case 'session.end':
+      phrase(ln, [m()[0]], '2n', 0.35);
+      removeLane(ln);
+      break;
+    case 'prompt': {
+      kick(0.25);
+      const p = m(); const i = Math.floor(p.length * 0.35);
+      phrase(ln, [p[i], p[i + 1], p[i + 3]].filter(Boolean), '8n', 0.5);
+      vis.marks.push({ t: wall(), type: 'prompt', lane: ln.id });
+      break;
+    }
+    case 'turn.start': ln.busy = true; kick(0.1); break;
+    case 'turn.end': {
+      ln.busy = false;
+      const p = m(); const roots = p.filter((x) => x % 12 === S.chord.root % 12);
+      if (roots.length) phrase(ln, [roots[roots.length - 1]], '2n', 0.35);
+      break;
+    }
+    case 'tool': case 'edit': {
+      const kind = e.kind || (e.type === 'edit' ? 'edit' : KIND_OF_TOOL(e.tool));
+      ln.queue.push(kind);
+      if (ln.queue.length > 6) ln.queue.shift();
+      kick(kind === 'edit' ? 0.12 : 0.07);
+      break;
+    }
+    case 'commit': case 'push':
+      S.landHome = true;
+      kick(0.15);
+      bellArp(true);
+      vis.marks.push({ t: wall(), type: 'commit', lane: ln.id, label: e.type });
+      break;
+    case 'fail':
+      if (!ln.failing) { ln.failing = true; ln.fails.push({ start: wall(), end: null }); }
+      updateSour();
+      break;
+    case 'pass':
+      if (ln.failing) { ln.failing = false; const f = ln.fails[ln.fails.length - 1]; if (f) f.end = wall(); }
+      updateSour();
+      break;
+    case 'checklist': {
+      const total = Number(e.total) || ln.total || 6;
+      const done = e.done != null ? Number(e.done) : Math.min(total, ln.done + 1);
+      const rose = done > ln.done;
+      ln.done = done; ln.total = total;
+      if (rose && S.audio) {
+        const scale = poolFor(mood(), S.chord, 'mallet').filter((x) => mood().scale.includes(((x - mood().tonic) % 12 + 12) % 12));
+        const i = Math.round((done / total) * (scale.length - 2));
+        phrase(ln, [scale[i], scale[i + 1]], '16n', 0.42, S.audio.bell);
+        vis.marks.push({ t: wall(), type: 'step', lane: ln.id });
+        if (done >= total) { S.landHome = true; setTimeout(() => bellArp(true), 350); }
+      }
+      if (e.done == null && done >= total) ln.done = 0;
+      break;
+    }
+    case 'waiting.open': S.waiting += 1; updateDrone(); break;
+    case 'waiting.resolve':
+      S.waiting = Math.max(0, S.waiting - 1);
+      updateDrone();
+      if (S.audio) { const p = poolFor(mood(), S.chord, 'mallet'); phrase(null, [p[6], p[4]], '8n', 0.35, S.audio.bell); }
+      break;
+    default: break;
+  }
+  renderLanesSoon();
+}
+
+function energy() {
+  let quiet = 1;
+  for (const l of lanes.values()) if (!l.ended) quiet *= 1 - l.energy * 0.9;
+  return 1 - quiet;
+}
+
+function pickAutoMood() {
+  if (S.moodPick !== 'auto') return;
+  const score = {};
+  for (const l of lanes.values()) {
+    if (l.ended) continue;
+    const k = moodFor(l.project);
+    score[k] = (score[k] || 0) + 1 + l.energy;
+  }
+  const best = Object.keys(score).sort((a, b) => score[b] - score[a])[0] || 'lofi';
+  setMood(best);
+}
+
+function setMood(key) {
+  if (!MOODS[key]) return;
+  if (!S.audio || !S.playing) {
+    if (key !== S.moodKey) { S.moodKey = key; S.chordIdx = -1; S.chord = chordOf(mood(), mood().prog[0]); }
+    showMood();
+    return;
+  }
+  if (key !== S.moodKey) S.pendingMood = key;
+}
+
+function showMood() {
+  qs('#key').textContent = mood().label;
+  qs('#bpm').textContent = mood().bpm;
+  if (!S.playing) qs('#chord').textContent = S.chord.name;
+}
+
+// Energy decays toward quiet; auto mood re-checks every few seconds
+setInterval(() => {
+  for (const l of lanes.values()) l.energy *= Math.pow(0.5, 0.5 / 40);
+  renderLanesSoon();
+}, 500);
+setInterval(pickAutoMood, 8000);
+
+// ------------------------------------------------------------------ demo sessions
+
+const DEMO = [
+  { lane: 'demo-1', project: 'jobsnearme', label: 'lane 1 · FS-296' },
+  { lane: 'demo-2', project: 'jobsnearme', label: 'lane 2 · FS-304' },
+  { lane: 'demo-3', project: 'jobsnearme', label: 'lane 3 · FS-313' },
+];
+const demo = { on: false, timer: null, st: {} };
+const TOOLS = { read: 'Read', edit: 'Edit', run: 'Bash', web: 'WebFetch', agent: 'Agent' };
+
+function demoSend(d, type, extra) { ingest({ type, ...d, ...extra }, 'demo'); }
+
+function demoTick() {
+  if (!S.playing) return;
+  const now = wall();
+  for (const d of DEMO) {
+    const st = demo.st[d.lane] || (demo.st[d.lane] = { busy: false, until: 0, edits: 0, failing: false, fixAt: 0, step: 0 });
+    if (!st.busy) {
+      if (Math.random() < 0.03) { demoSend(d, 'prompt'); demoSend(d, 'turn.start'); st.busy = true; st.until = now + rand(14, 40); }
+      continue;
+    }
+    if (now > st.until) { demoSend(d, 'turn.end'); st.busy = false; continue; }
+    if (Math.random() < 0.45) {
+      const r = Math.random();
+      const kind = r < 0.36 ? 'read' : r < 0.62 ? 'edit' : r < 0.88 ? 'run' : r < 0.94 ? 'web' : 'agent';
+      demoSend(d, 'tool', { tool: TOOLS[kind], kind });
+      if (kind === 'edit') st.edits += 1;
+    }
+    if (!st.failing && st.edits > 2 && Math.random() < 0.005) { demoSend(d, 'fail', { source: 'typecheck' }); st.failing = true; st.fixAt = now + rand(9, 22); }
+    if (st.failing && now > st.fixAt) { demoSend(d, 'pass', { source: 'typecheck' }); st.failing = false; }
+    if (!st.failing && st.edits >= 7 && Math.random() < 0.025) { demoSend(d, 'commit'); st.edits = 0; }
+    if (Math.random() < 0.01) { st.step = st.step >= 6 ? 1 : st.step + 1; demoSend(d, 'checklist', { done: st.step, total: 6 }); }
+  }
+  if (Math.random() < 0.004 && S.waiting < 4) demoSend(pick(DEMO), 'waiting.open');
+  if (Math.random() < 0.003 && S.waiting > 0) demoSend(pick(DEMO), 'waiting.resolve');
+}
+
+function setDemo(on) {
+  demo.on = on;
+  qs('#demo').checked = on;
+  clearInterval(demo.timer);
+  if (on) {
+    for (const d of DEMO) ensureLane(d, 'demo');
+    demo.timer = setInterval(demoTick, 400);
+  } else {
+    for (const d of DEMO) { const ln = lanes.get(d.lane); if (ln) { ln.failing = false; removeLane(ln); } }
+    demo.st = {};
+    updateSour();
+  }
+  renderLanes();
+}
+
+// A still frame for the page at rest: the last forty seconds of a made-up session
+function preview() {
+  const m = mood();
+  const now = S.frozenAt;
+  const barLen = 240 / m.bpm;
+  const sixteenth = barLen / 16;
+  const span = 44;
+  let idx = 0;
+  for (let t = now - span; t < now; t += barLen) {
+    vis.bars.push(t);
+    if (idx % 2 === 0) {
+      const home = t > now - 14.2 && t <= now - 14.2 + 2 * barLen;
+      const ch = home ? chordOf(m, m.home) : chordOf(m, m.prog[(idx / 2) % m.prog.length]);
+      vis.chords.push({ t, name: ch.name, home });
+      S.chord = ch;
+    }
+    idx++;
+    for (const ln of lanes.values()) {
+      ln.pool = poolFor(m, S.chord, ln.timbre);
+      for (let k = 0; k < 16; k += 2) {
+        const dens = ln.n === 2 ? (t > now - 24 ? 0.32 : 0.05) : ln.n === 1 ? 0.22 : 0.3;
+        if (Math.random() < dens) {
+          const kind = pick(['read', 'read', 'edit', 'run', 'run', 'ambient']);
+          vis.notes.push({ t: t + k * sixteenth, lane: ln.id, midi: pickNote(ln, kind), vel: VEL[kind], dur: ln.timbre === 'cello' ? 0.7 : 0.18 });
+        }
+      }
+    }
+  }
+  vis.marks.push({ t: now - 14.2, type: 'commit', lane: 'demo-1', label: 'commit' });
+  vis.marks.push({ t: now - 31, type: 'prompt', lane: 'demo-3' });
+  vis.marks.push({ t: now - 22, type: 'step', lane: 'demo-2' });
+  vis.marks.push({ t: now - 6, type: 'step', lane: 'demo-1' });
+  const l2 = lanes.get('demo-2');
+  if (l2) l2.fails.push({ start: now - 33, end: now - 19.5 });
+  vis.waits.push({ t: now - 36, n: 1 }, { t: now - 25, n: 2 }, { t: now - 9, n: 1 });
+  S.waiting = 1;
+  S.chordIdx = -1;
+  S.chord = chordOf(m, m.prog[0]);
+  qs('#chord').textContent = S.chord.name;
+}
+
+// ------------------------------------------------------------------ live bridge
+
+function connect() {
+  const es = new EventSource('/events');
+  es.onopen = () => setSource('Live', true);
+  es.onerror = () => setSource('Reconnecting', false);
+  es.onmessage = (msg) => {
+    let d;
+    try { d = JSON.parse(msg.data); } catch { return; }
+    if (d.type === 'hello') {
+      for (const l of d.lanes || []) ensureLane(l, 'live');
+      if (typeof d.waiting === 'number') { S.waiting = d.waiting; updateDrone(); }
+      renderLanes();
+      return;
+    }
+    ingest(d, 'live');
+  };
+}
+
+function setSource(text, live) {
+  const el = qs('#src');
+  el.textContent = text;
+  el.classList.toggle('live', !!live);
+}
+
+// ------------------------------------------------------------------ transport
+
+async function play() {
+  if (S.playing) return stop();
+  const btn = qs('#play');
+  btn.disabled = true;
+  try {
+    if (!S.audio) await buildAudio();
+    // Keep the at-rest score continuous with what comes next
+    const shift = wall() - S.frozenAt;
+    for (const n of vis.notes) n.t += shift;
+    for (const k of vis.marks) k.t += shift;
+    for (const c of vis.chords) c.t += shift;
+    for (let i = 0; i < vis.bars.length; i++) vis.bars[i] += shift;
+    for (const w of vis.waits) w.t += shift;
+    for (const l of lanes.values()) for (const f of l.fails) { f.start += shift; if (f.end) f.end += shift; }
+    S.frozenAt = wall();
+    S.playing = true;
+    if (S.audio.T.state !== 'started') S.audio.T.start('+0.05');
+    S.audio.out.gain.rampTo(1.4, 0.6);
+    updateDrone();
+    updateSour();
+  } finally {
+    btn.disabled = false;
+  }
+  setPlayUi();
+}
+
+function stop() {
+  S.playing = false;
+  S.frozenAt = wall();
+  const A = S.audio;
+  A.out.gain.rampTo(0, 0.4);
+  setTimeout(() => { if (!S.playing) A.T.pause(); }, 450);
+  setPlayUi();
+}
+
+function setPlayUi() {
+  qs('#play').setAttribute('aria-pressed', String(S.playing));
+  qs('#playText').textContent = S.playing ? 'Stop' : 'Play';
+  qs('#playIcon').innerHTML = S.playing ? '<rect x="4.5" y="4.5" width="11" height="11" rx="1.5" fill="currentColor"/>' : '<path d="M5 3.5v13l11-6.5z" fill="currentColor"/>';
+}
+
+// ------------------------------------------------------------------ UI: lanes, jam deck, mix
+
+let lanesQueued = false;
+function renderLanesSoon() {
+  if (lanesQueued) return;
+  lanesQueued = true;
+  requestAnimationFrame(() => { lanesQueued = false; renderLanes(); });
+}
+
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+function renderLanes() {
+  const list = qs('#laneList');
+  const items = [...lanes.values()].filter((l) => !l.ended);
+  qs('#laneEmpty').hidden = items.length > 0;
+  list.innerHTML = items.map((l) => `
+    <li class="lane" style="--c: ${l.color}">
+      <span class="sw"></span>
+      <div class="who"><strong>${esc(l.label)}</strong><span>${esc(l.project)} · ${l.timbre}</span></div>
+      <div class="chips">
+        <span class="chip ${l.busy ? 'on' : ''}">${l.busy ? 'working' : 'idle'}</span>
+        ${l.failing ? '<span class="chip fail">build failing</span>' : ''}
+        ${l.total ? `<span class="chip">${l.done}/${l.total}</span>` : ''}
+        <span class="energy" title="Activity"><i style="width:${Math.round(l.energy * 100)}%"></i></span>
+      </div>
+      <button class="mute" type="button" data-mute="${esc(l.id)}" aria-pressed="${l.muted}">${l.muted ? 'Muted' : 'Mute'}</button>
+    </li>`).join('');
+
+  const targets = qs('#targets');
+  if (S.target && !lanes.has(S.target)) S.target = items.length ? items[0].id : null;
+  targets.innerHTML = items.map((l) => `<button class="target" type="button" role="radio" style="--c: ${l.color}" data-target="${esc(l.id)}" aria-checked="${S.target === l.id}">${esc(l.label)}</button>`).join('')
+    + '<button class="target" type="button" data-target="__new">+ New lane</button>';
+}
+
+qs('#laneList').addEventListener('click', (ev) => {
+  const b = ev.target.closest('[data-mute]');
+  if (!b) return;
+  const ln = lanes.get(b.dataset.mute);
+  if (ln) { ln.muted = !ln.muted; renderLanes(); }
+});
+
+let jamCount = 0;
+qs('#targets').addEventListener('click', (ev) => {
+  const b = ev.target.closest('[data-target]');
+  if (!b) return;
+  if (b.dataset.target === '__new') {
+    jamCount += 1;
+    const ln = ensureLane({ lane: 'jam-' + jamCount, project: 'jam', label: 'jam ' + jamCount }, 'jam');
+    ingest({ type: 'session.start', lane: ln.id }, 'jam');
+    S.target = ln.id;
+  } else S.target = b.dataset.target;
+  renderLanes();
+});
+
+qs('.pads').addEventListener('click', async (ev) => {
+  const b = ev.target.closest('[data-ev]');
+  if (!b) return;
+  if (!S.playing) await play();
+  if (!S.target || !lanes.has(S.target)) {
+    jamCount += 1;
+    S.target = ensureLane({ lane: 'jam-' + jamCount, project: 'jam', label: 'jam ' + jamCount }, 'jam').id;
+  }
+  const evt = { type: b.dataset.ev, lane: S.target };
+  if (b.dataset.kind) evt.kind = b.dataset.kind;
+  ingest(evt, 'jam');
+  b.classList.add('hit');
+  setTimeout(() => b.classList.remove('hit'), 120);
+});
+
+qs('#play').addEventListener('click', play);
+qs('#mood').addEventListener('change', (ev) => {
+  S.moodPick = ev.target.value;
+  if (S.moodPick === 'auto') pickAutoMood(); else setMood(S.moodPick);
+});
+qs('#vol').addEventListener('input', (ev) => { Tone.getDestination().volume.rampTo(Number(ev.target.value), 0.1); });
+qs('#demo').addEventListener('change', (ev) => setDemo(ev.target.checked));
+qs('#drums').addEventListener('change', (ev) => { S.drumsOn = ev.target.checked; });
+qs('#vinyl').addEventListener('change', (ev) => { if (S.audio) S.audio.vinylGain.gain.rampTo(ev.target.checked ? 1 : 0, 0.5); });
+
+// ------------------------------------------------------------------ the score
+
+const cv = qs('#score');
+const g = cv.getContext('2d');
+let W = 0, H = 0, colors = {}, colorsAt = 0;
+
+function readColors() {
+  const cs = getComputedStyle(document.documentElement);
+  const v = (n) => cs.getPropertyValue(n).trim();
+  colors = { canvas: v('--canvas'), grid: v('--grid'), line: v('--line'), fg: v('--fg'), muted: v('--muted'), accent: v('--accent'),
+    lanes: [v('--lane1'), v('--lane2'), v('--lane3'), v('--lane4')], fail: v('--fail'), gold: v('--gold'), drone: v('--drone') };
+}
+
+function withAlpha(hex, a) {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex || '');
+  if (!m) return a ? hex : 'rgba(0,0,0,0)';
+  const n = parseInt(m[1], 16);
+  return `rgba(${n >> 16}, ${(n >> 8) & 255}, ${n & 255}, ${a})`;
+}
+
+function resize() {
+  const r = cv.getBoundingClientRect();
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  W = r.width; H = r.height;
+  cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+new ResizeObserver(resize).observe(cv);
+
+function draw() {
+  if (!W) resize();
+  if (!colorsAt || performance.now() - colorsAt > 1000) { readColors(); colorsAt = performance.now(); }
+  const now = S.playing ? wall() : S.frozenAt;
+  const pps = W < 560 ? 16 : 26;
+  const head = W - (W < 560 ? 28 : 56);
+  const X = (t) => head - (now - t) * pps;
+  const left = now - head / pps - 2;
+  const top = 30, bottom = H - 34;
+  const live = [...lanes.values()];
+  const rows = Math.max(1, live.length);
+  const bandH = (bottom - top) / rows;
+  const rowOf = new Map(live.map((l, i) => [l.id, i]));
+
+  g.clearRect(0, 0, W, H);
+  g.fillStyle = colors.canvas;
+  g.fillRect(0, 0, W, H);
+
+  // Bar lines
+  g.lineWidth = 1;
+  g.strokeStyle = colors.grid;
+  g.beginPath();
+  for (const t of vis.bars) { if (t < left) continue; const x = Math.round(X(t)) + 0.5; g.moveTo(x, top - 6); g.lineTo(x, bottom); }
+  g.stroke();
+
+  // Chord ruler
+  g.font = '500 11px "IBM Plex Mono", ui-monospace, monospace';
+  g.textBaseline = 'middle';
+  for (const c of vis.chords) {
+    if (c.t < left - 8) continue;
+    const x = X(c.t);
+    g.fillStyle = c.home ? colors.gold : colors.muted;
+    g.fillRect(Math.round(x), 8, 1, 12);
+    g.fillText(c.name + (c.home ? '  home' : ''), x + 6, 14);
+  }
+
+  // Lane bands
+  live.forEach((l, i) => {
+    const y = top + i * bandH;
+    const col = colors.lanes[l.n % 4];
+    if (i > 0) { g.strokeStyle = colors.line; g.beginPath(); g.moveTo(0, Math.round(y) + 0.5); g.lineTo(W, Math.round(y) + 0.5); g.stroke(); }
+    g.globalAlpha = l.ended ? 0.4 : 1;
+    g.fillStyle = col;
+    g.fillText(l.label + (l.muted ? '  (muted)' : ''), 10, y + 12);
+    g.globalAlpha = 1;
+    // Failing build: a red wave across the band
+    for (const f of l.fails) {
+      const end = f.end || now;
+      if (end < left) continue;
+      const x0 = Math.max(0, X(f.start)), x1 = Math.min(head, X(end));
+      const mid = y + bandH / 2;
+      g.strokeStyle = colors.fail;
+      g.globalAlpha = 0.8;
+      g.lineWidth = 1.5;
+      g.beginPath();
+      for (let x = x0; x <= x1; x += 2) { const yy = mid + Math.sin((x + now * (S.playing ? 40 : 0)) / 4) * 3; x === x0 ? g.moveTo(x, yy) : g.lineTo(x, yy); }
+      g.stroke();
+      g.lineWidth = 1;
+      g.globalAlpha = 1;
+      if (X(f.start) > 0) { g.fillStyle = colors.fail; g.fillText(f.end ? 'fixed' : 'build failing', X(f.start) + 4, mid - 10); }
+    }
+  });
+
+  // Notes
+  for (const n of vis.notes) {
+    if (n.t < left || n.t > now + 1) continue;
+    const r = n.lane != null ? rowOf.get(n.lane) : null;
+    let y, col;
+    if (r == null) {
+      // Bells ride across the top of the lanes
+      y = top + 4 + (1 - clamp((n.midi - 60) / 40, 0, 1)) * Math.min(40, bandH * 0.6);
+      col = colors.gold;
+    } else {
+      const l = live[r];
+      const [lo, hi] = REG[l.timbre];
+      const frac = clamp((n.midi - lo) / (hi - lo), 0, 1);
+      y = top + r * bandH + 22 + (1 - frac) * Math.max(8, bandH - 32);
+      col = n.bell ? colors.gold : colors.lanes[l.n % 4];
+    }
+    const x = X(n.t);
+    const w = Math.max(3, Math.min(60, n.dur * pps));
+    const fresh = S.playing && now - n.t < 0.35 && now >= n.t;
+    g.globalAlpha = 0.35 + n.vel * 0.65;
+    g.fillStyle = col;
+    g.beginPath();
+    g.roundRect(x, y - 3, w, 6, 3);
+    g.fill();
+    if (fresh && !REDUCED) {
+      g.globalAlpha = 0.35 * (1 - (now - n.t) / 0.35);
+      g.beginPath();
+      g.arc(x + 2, y, 9, 0, Math.PI * 2);
+      g.fill();
+    }
+  }
+  g.globalAlpha = 1;
+
+  // Marks: commits across everything, steps and prompts in their lane
+  for (const k of vis.marks) {
+    if (k.t < left) continue;
+    const x = Math.round(X(k.t)) + 0.5;
+    if (k.type === 'commit') {
+      g.strokeStyle = colors.gold;
+      g.lineWidth = 1.5;
+      g.beginPath(); g.moveTo(x, top - 4); g.lineTo(x, bottom); g.stroke();
+      g.lineWidth = 1;
+      g.fillStyle = colors.gold;
+      g.beginPath(); g.moveTo(x, top - 9); g.lineTo(x + 5, top - 4); g.lineTo(x, top + 1); g.lineTo(x - 5, top - 4); g.fill();
+      continue;
+    }
+    const r = rowOf.get(k.lane);
+    if (r == null) continue;
+    const y = top + r * bandH;
+    g.fillStyle = colors.lanes[live[r].n % 4];
+    if (k.type === 'step') { g.beginPath(); g.moveTo(x - 4, y + bandH - 6); g.lineTo(x, y + bandH - 12); g.lineTo(x + 4, y + bandH - 6); g.fill(); }
+    if (k.type === 'prompt') { g.globalAlpha = 0.5; g.fillRect(x - 0.5, y + 4, 1, bandH - 8); g.globalAlpha = 1; }
+  }
+
+  // Waiting-on-you drone along the bottom
+  const baseY = H - 8;
+  g.fillStyle = colors.drone;
+  g.globalAlpha = 0.45;
+  g.beginPath();
+  g.moveTo(0, baseY);
+  let prevN = 0;
+  for (const w of vis.waits) {
+    if (w.t < left) { prevN = w.n; continue; }
+    const x = Math.min(head, X(w.t));
+    g.lineTo(x, baseY - Math.min(prevN, 6) * 3.5);
+    g.lineTo(x, baseY - Math.min(w.n, 6) * 3.5);
+    prevN = w.n;
+  }
+  g.lineTo(head, baseY - Math.min(prevN, 6) * 3.5);
+  g.lineTo(head, baseY);
+  g.closePath();
+  g.fill();
+  g.globalAlpha = 1;
+  g.fillStyle = colors.drone;
+  g.fillText(S.waiting ? `${S.waiting} waiting on you` : 'nothing waiting on you', 10, H - 22);
+
+  // Fade the left edge, shade what hasn't played yet, draw the playhead
+  const fade = g.createLinearGradient(0, 0, 70, 0);
+  fade.addColorStop(0, withAlpha(colors.canvas, 1));
+  fade.addColorStop(1, withAlpha(colors.canvas, 0));
+  g.fillStyle = fade;
+  g.globalAlpha = 0.9;
+  g.fillRect(0, top + 18, 70, bottom - top - 18);
+  g.globalAlpha = 0.55;
+  g.fillStyle = colors.canvas;
+  g.fillRect(head, 0, W - head, H);
+  g.globalAlpha = 1;
+  g.fillStyle = colors.accent;
+  g.fillRect(Math.round(head), top - 8, 1.5, bottom - top + 8);
+
+  if (!S.playing) {
+    g.fillStyle = colors.muted;
+    g.textAlign = 'right';
+    g.fillText(S.audio ? 'paused' : 'press Play', head - 8, H - 22);
+    g.textAlign = 'left';
+  }
+
+  // Forget what scrolled off long ago
+  const cutoff = now - 200;
+  if (vis.notes.length > 4000 || (vis.notes[0] && vis.notes[0].t < cutoff)) {
+    vis.notes = vis.notes.filter((n) => n.t > cutoff);
+    vis.bars = vis.bars.filter((t) => t > cutoff);
+    vis.chords = vis.chords.filter((c) => c.t > cutoff);
+    vis.marks = vis.marks.filter((k) => k.t > cutoff);
+    const keep = vis.waits.filter((w) => w.t > cutoff);
+    vis.waits = [{ t: cutoff, n: (vis.waits.filter((w) => w.t <= cutoff).pop() || { n: 0 }).n }, ...keep];
+    for (const l of lanes.values()) l.fails = l.fails.filter((f) => !f.end || f.end > cutoff);
+  }
+}
+
+function loop() {
+  draw();
+  if (REDUCED) setTimeout(() => requestAnimationFrame(loop), 250);
+  else requestAnimationFrame(loop);
+}
+
+// ------------------------------------------------------------------ boot
+
+window.undertone = { ingest: (e) => ingest(e, 'console'), state: S, lanes, audio: null };
+
+if (LIVE) {
+  setSource('Connecting', false);
+  qs('#bridgeNote').innerHTML = 'Listening to the bridge on <code>' + esc(location.host) + '</code>. Sessions running the undertone mod show up as lanes. Turn on the demo to jam over them.';
+  connect();
+} else {
+  qs('#bridgeNote').innerHTML = 'This published page plays a demo of three sessions. To hear your own, run the bridge on your machine (<code>npm start</code> in the undertone repo), open <code>http://127.0.0.1:4747</code>, and run <code>/undertone</code> in Claude Code.';
+  setDemo(true);
+  preview();
+}
+showMood();
+renderLanes();
+loop();
+})();
+</script>

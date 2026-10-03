@@ -1,0 +1,4 @@
+{
+  "description": "undertone hooks module",
+  "modules": ["./register.js"]
+}

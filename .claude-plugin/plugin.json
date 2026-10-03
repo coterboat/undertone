@@ -1,0 +1,14 @@
+{
+  "name": "undertone",
+  "version": "0.1.0",
+  "description": "Plays your Claude Code sessions as music: each session is a voice, commits resolve the chord, a broken build holds a sour note",
+  "author": { "name": "coterboat" },
+  "userConfig": {
+    "port": {
+      "type": "string",
+      "title": "Bridge port",
+      "description": "Port the undertone bridge listens on, on 127.0.0.1",
+      "default": "4747"
+    }
+  }
+}

@@ -1,0 +1,6 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    { "name": "undertone", "runtimeExecutable": "node", "runtimeArgs": ["bridge/server.mjs"], "port": 4747 }
+  ]
+}

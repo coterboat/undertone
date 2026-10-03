@@ -1,0 +1,12 @@
+{
+  "name": "undertone",
+  "owner": { "name": "coterboat" },
+  "plugins": [
+    {
+      "name": "undertone",
+      "source": "./",
+      "description": "Plays your Claude Code sessions as music: each session is a voice, commits resolve the chord, a broken build holds a sour note"
+    }
+  ],
+  "description": "undertone: your build, played as music"
+}
