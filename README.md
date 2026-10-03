@@ -19,7 +19,7 @@ Then open http://127.0.0.1:4747 and press Play. From inside Claude Code, `/under
 | A low drone that grows | Questions waiting on you, counted from coter-kit's `waiting` notes in every project you have on |
 | A sour, trembling tritone over every chord | A build is broken: a failing test, build, typecheck or lint, or coter-kit's checks blocking a stop |
 
-Each session's call comes from its id, so after a while you know who's calling. Everything else is texture: tool calls are notes in the session's voice (reads low, edits on chord tones, commands high), drums fade in while Claude works, a commit resolves the progression home with a bell, a checklist step climbs a bell, and a fixed build slides the sour note into the chord.
+A call comes from the project and worktree, not the session, so `jobsnearme · oct2-signup` sounds the same every time it starts and you learn who's calling. The ending carries the meaning: settled means done, rising means it needs you. Everything else is texture: tool calls are notes in the session's voice (reads low, edits on chord tones, commands high), drums fade in while Claude works, a commit resolves the progression home with a bell, a checklist step climbs a bell, and a fixed build slides the sour note into the chord.
 
 ## Sound engines
 

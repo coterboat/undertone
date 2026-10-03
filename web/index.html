@@ -409,7 +409,7 @@ function poolFor(mood, chord, timbre) {
   return out;
 }
 
-// Each session's call: three scale steps it plays when it's done or needs you, so you learn who's talking
+// Each lane's call: three scale steps it plays when it's done or needs you, so you learn who's talking
 const MOTIFS = [[0, 2, 4], [4, 2, 0], [0, 4, 2], [2, 0, 4], [0, 1, 4], [4, 3, 0], [0, 2, 5], [5, 4, 0], [2, 4, 1], [0, 3, 1]];
 const hash = (s) => { let h = 2166136261; for (const c of String(s)) { h ^= c.charCodeAt(0); h = Math.imul(h, 16777619); } return h >>> 0; };
 
@@ -787,7 +787,8 @@ function ensureLane(e, source) {
       label: String(e.label || proj),
       timbre: TIMBRES[n % TIMBRES.length],
       color: laneColor(n),
-      motif: MOTIFS[hash(id) % MOTIFS.length],
+      // Keyed to the project and worktree, not the session, so a lane keeps its call across sessions
+      motif: MOTIFS[hash(proj + '|' + String(e.label || proj)) % MOTIFS.length],
       queue: [], energy: 0.15, busy: false, failing: false, muted: false, off: !projectOn(proj),
       done: 0, total: 0, idx: null, pool: null, ended: false, last: wall(), lastWork: wall(),
       needs: null, callsLeft: 0, nextCall: 0, fails: [],
