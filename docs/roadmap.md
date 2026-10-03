@@ -19,7 +19,7 @@ Updated 2026-10-03, at 0.4.0. What's built, what's next and in what order, and w
 
 ## Next, in order
 
-1. **Timesheets from the log.** Time per project, time Claude spent waiting on you, how long builds stayed broken, all from `~/.undertone/log`. Open question first: each machine keeps its own log, so a week on the PC and the Mac is two halves. Sync the daily logs through the brain's repo (they're a few KB a day and hold no content), or keep timesheets per machine?
+1. **Timesheets from the log.** Time per project, time Claude spent waiting on you, how long builds stayed broken, all from `~/.undertone/log`. Open question first: each machine keeps its own log, so a week on the PC and the Mac is two halves. Sync the daily logs through the brain's repo (they hold no content, but run to about half a megabyte on a busy day, so a year of raw logs would bloat that git repo), sync a small daily summary per project instead, or keep timesheets per machine?
 2. **A bridge that's simply there.** Today it lives in a terminal (`npm start`) or as long as the session that ran `/undertone`. Start it detached with the first session and let it exit after a quiet hour, so there's nothing to keep open.
 3. **Home dashboard** on `GET /state`: every session at a glance, what needs you first, what's failing. The data is there since 0.3.
 4. **Synth tuning loop.** Agreed by spectrogram and two Gemini reads: drums buried, mud at 180-300 Hz, hiss sitting alone on top. Before and after spectrograms per change. Waits on the engine verdict above, in case Synth isn't the keeper.

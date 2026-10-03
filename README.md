@@ -119,7 +119,7 @@ Anything can post events to the bridge. An outside source marks its events with 
 
 The bridge appends every event to `~/.undertone/log/<date>.jsonl`: session starts and heartbeats, prompts, turns, tool calls, commits, failing and passing checks by name, calls for you. It's the raw material for metrics such as time per project, time Claude spent waiting on you, and how long builds stayed broken.
 
-Nothing expires by default: the clips are what teaches Claude to hear, and the logs (a few KB a day) are your history. `UNDERTONE_EAR_DAYS` and `UNDERTONE_LOG_DAYS` delete clip days and logs older than that many days, on start and daily; pruned clips stay in `ear/index.jsonl`, marked `"pruned": true`.
+Nothing expires by default: the clips are what teaches Claude to hear, and the logs (up to about half a megabyte on a busy day) are your history. `UNDERTONE_EAR_DAYS` and `UNDERTONE_LOG_DAYS` delete clip days and logs older than that many days, on start and daily; pruned clips stay in `ear/index.jsonl`, marked `"pruned": true`.
 
 ## Projects
 
