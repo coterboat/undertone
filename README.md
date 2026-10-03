@@ -56,7 +56,7 @@ Each one lands in `~/.undertone/ear/<date>/<time>-<engine>-<kind>/`:
 
 | File | What it is |
 | :- | :- |
-| `clip.wav` | The audio (SuperCollider keeps a rolling 30 seconds of its own output and hands it over) |
+| `clip.wav` | The audio: the page records it on the audio thread, so a busy page can't drop any (SuperCollider keeps a rolling 30 seconds of its own output and hands it over) |
 | `spectrogram.png` | 30 Hz at the bottom to 16 kHz at the top; faint lines at 100 Hz, 1 kHz, 10 kHz and every 5 s; a loudness strip underneath with red ticks at clicks |
 | `stats.json` | RMS and peak, clipping, clicks per minute, energy per band (sub, bass, low-mid, mid, presence, air), brightness |
 | `state.json` | What was playing: engine, mood, key, chord, tempo, texture, every lane |

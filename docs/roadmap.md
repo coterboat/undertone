@@ -15,6 +15,7 @@ Updated 2026-10-03, at 0.6.1. What's built, what's next and in what order, and w
 | 0.6.0 | A bridge that's simply there: the first session starts it detached, it leaves after a quiet hour, `/undertone stop` holds until you start it again |
 | 0.6.1 | A design pass on the page: commits and pushes marked in the lane that made them, hover tips on the score, a compact engine switch so the score sits near the top |
 | 0.6.2 | The page on your phone: the bridge also answers names listed in `hosts.json` (the Mac under `tailscale serve`), and the page it serves there runs live |
+| 0.6.3 | The pops: buses pinned to stereo (a mono kick plus stereo noise flipped the drum bus's channel count on every hit, and each flip popped through the filters after it). Synth: softer snare, rounder kick and mallet, the kick ducks the bass, laid-back hats. The ears record on the audio thread |
 
 ## Now
 
@@ -24,7 +25,7 @@ Updated 2026-10-03, at 0.6.1. What's built, what's next and in what order, and w
 ## Next, in order
 
 1. **Home dashboard** on `GET /state` and `GET /timesheet`: every session at a glance, what needs you first, what's failing. The data is there since 0.3.
-2. **Synth tuning loop.** Agreed by spectrogram and two Gemini reads: drums buried, mud at 180-300 Hz, hiss sitting alone on top. Before and after spectrograms per change. Waits on the engine verdict above, in case Synth isn't the keeper.
+2. **Synth tuning loop.** First round in 0.6.3 (the pops, the snare's snap, the bass under the kick), measured with a before/after rig: two scratch bridges replaying the same real events into two muted pages. Still open from earlier reads: mud at 180-300 Hz, hiss sitting alone on top.
 3. **More outside sources**, each a lane that colors the music without leading it: wallstbets bots (fills as pulses, a stalled bot as a failing check), GitHub Actions (a red run as a check), a Grok review landing.
 
 ## Later, on purpose

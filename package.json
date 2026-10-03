@@ -1,6 +1,6 @@
 {
   "name": "undertone",
-  "version": "0.6.2",
+  "version": "0.6.3",
   "private": true,
   "description": "Your Claude Code sessions, played as music",
   "type": "module",

@@ -7,7 +7,7 @@ window.UndertoneEngines.add({
   blurb: 'Tone.js, all synthesized. Warm FM keys, saw pads, no samples.',
   local: false,
   create() {
-    const { hz, makeFx, makeTexture, makeDrone, makeSour } = window.UndertoneEngines.kit
+    const { hz, stereo, makeFx, makeTexture, makeDrone, makeSour } = window.UndertoneEngines.kit
     let T, fx, pad, padFilter, padChorus, bass, bassDuck, bell, drumBus, kick, snare, hat, tom, texture, drone, sour
     const voices = {}
     const nodes = []
@@ -62,7 +62,7 @@ window.UndertoneEngines.add({
         fx = await makeFx(io)
         // A slow tape wobble on the tonal parts
         const wobble = keep(new Tone.Vibrato({ frequency: 0.32, depth: 0.03 }))
-        const music = keep(new Tone.Gain(1))
+        const music = keep(stereo(new Tone.Gain(1)))
         music.chain(wobble, io.out)
         const send = (node, opts) => fx.send(node, { to: music, ...opts })
 
@@ -98,7 +98,9 @@ window.UndertoneEngines.add({
         bell.volume.value = -8
         send(bell, { dry: 0.9, rv: 0.6, ec: 0.25 })
 
-        drumBus = keep(new Tone.Gain(1))
+        // Pinned to stereo: the mono kick plus stereo hat and snare noise flipped it 1-2-1 on every hit,
+        // and each flip popped through the filter after it (16-24 clicks a minute, 0 pinned)
+        drumBus = keep(stereo(new Tone.Gain(1)))
         const drumTone = keep(new Tone.Filter(7000, 'lowpass'))
         drumBus.chain(drumTone, io.out)
         drumBus.connect(keep(new Tone.Gain(0.12)).connect(fx.verbIn))

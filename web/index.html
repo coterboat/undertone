@@ -517,7 +517,10 @@ async function buildAudio() {
   const T = Tone.getTransport();
   Tone.getContext().lookAhead = 0.15;
 
+  // Two channels always, so the master chain's filters and compressors never see the count change
   const engineOut = new Tone.Gain(1);
+  engineOut.channelCount = 2;
+  engineOut.channelCountMode = 'explicit';
   const master = new Tone.Gain(0);
   const comp = new Tone.Compressor({ threshold: -18, ratio: 2.5, attack: 0.03, release: 0.3 });
   const air = new Tone.Filter({ frequency: 11000, type: 'lowpass', rolloff: -12 });
@@ -1278,23 +1281,53 @@ function setSource(text, live) {
 // The last 30 seconds of the master, always, so a reaction keeps exactly what you reacted to.
 // (SuperCollider plays outside the page; it keeps its own and the bridge asks it for that.)
 const CAPTURE_SECONDS = 30;
+// Recorded on the audio thread and handed over in blocks. The ScriptProcessor this replaces ran on
+// the page's main thread and lost audio whenever the page was busy drawing, which the ears then
+// counted as clicks: a page in front heard 5x the clicks of the same music behind it.
+const CAPTURE_WORKLET = `registerProcessor('undertone-capture', class extends AudioWorkletProcessor {
+  constructor() { super(); this.buf = new Float32Array(4096); this.n = 0; }
+  process(inputs) {
+    const ch = inputs[0] || [];
+    const L = ch[0], R = ch[1] || L, len = L ? L.length : 128;
+    for (let i = 0; i < len; i++) {
+      this.buf[this.n++] = L ? (L[i] + R[i]) * 0.5 : 0;
+      if (this.n === this.buf.length) { this.port.postMessage(this.buf, [this.buf.buffer]); this.buf = new Float32Array(4096); this.n = 0; }
+    }
+    return true;
+  }
+});`;
 function startCapture() {
   const ctx = S.audio.ctx;
   const size = Math.floor(ctx.sampleRate * CAPTURE_SECONDS);
-  const cap = { ring: new Float32Array(size), pos: 0, filled: 0, rate: ctx.sampleRate };
-  const node = ctx.createScriptProcessor(4096, 2, 1);
-  node.onaudioprocess = (ev) => {
-    const inb = ev.inputBuffer;
-    const L = inb.getChannelData(0), R = inb.numberOfChannels > 1 ? inb.getChannelData(1) : L;
+  const cap = { ring: new Float32Array(size), pos: 0, filled: 0, rate: ctx.sampleRate, via: '' };
+  const write = (L, R) => {
     for (let i = 0; i < L.length; i++) {
-      cap.ring[cap.pos] = (L[i] + R[i]) * 0.5;
+      cap.ring[cap.pos] = R ? (L[i] + R[i]) * 0.5 : L[i];
       cap.pos = cap.pos + 1 === size ? 0 : cap.pos + 1;
     }
     cap.filled = Math.min(size, cap.filled + L.length);
   };
-  S.audio.lim.connect(node);
-  node.connect(ctx.destination);
   S.audio.capture = cap;
+  const url = URL.createObjectURL(new Blob([CAPTURE_WORKLET], { type: 'text/javascript' }));
+  (ctx.audioWorklet ? ctx.audioWorklet.addModule(url) : Promise.reject(new Error('no AudioWorklet')))
+    .then(() => {
+      const node = new AudioWorkletNode(ctx, 'undertone-capture', { numberOfInputs: 1, numberOfOutputs: 1, channelCount: 2, channelCountMode: 'explicit' });
+      node.port.onmessage = (ev) => write(ev.data);
+      S.audio.lim.connect(node);
+      node.connect(ctx.destination); // silent; keeps it pulled
+      cap.via = 'worklet';
+    })
+    .catch(() => {
+      const node = ctx.createScriptProcessor(4096, 2, 1);
+      node.onaudioprocess = (ev) => {
+        const inb = ev.inputBuffer;
+        write(inb.getChannelData(0), inb.numberOfChannels > 1 ? inb.getChannelData(1) : null);
+      };
+      S.audio.lim.connect(node);
+      node.connect(ctx.destination);
+      cap.via = 'script-processor';
+    })
+    .finally(() => URL.revokeObjectURL(url));
 }
 
 function lastSeconds(sec) {
@@ -1326,7 +1359,7 @@ function earState() {
   const r2 = (x) => Math.round(x * 100) / 100;
   return {
     engine: S.engineId, mood: S.moodKey, moodName: mood().name, key: mood().label, bpm: mood().bpm, chord: S.chord.name,
-    lead: S.leadNow, texture: S.texture, volume: S.volume, drumLevel: r2(S.drumLevel), energy: r2(energy()), sour: S.sourOn, waiting: total,
+    lead: S.leadNow, texture: S.texture, volume: S.volume, capture: S.audio && S.audio.capture ? S.audio.capture.via : '', drumLevel: r2(S.drumLevel), energy: r2(energy()), sour: S.sourOn, waiting: total,
     lanes: [...lanes.values()].filter((l) => !l.ended).map((l) => ({
       label: l.label, project: l.project, timbre: l.timbre, busy: l.busy, failing: Object.keys(l.failChecks), needs: l.needs, off: l.off, muted: l.muted, energy: r2(l.energy),
     })),

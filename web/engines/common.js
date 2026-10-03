@@ -20,6 +20,10 @@
 (() => {
   const hz = (m) => 440 * Math.pow(2, (m - 69) / 12)
   const fold = (n, lo, hi) => { while (n < lo) n += 12; while (n > hi) n -= 12; return n }
+  // A bus that mixes mono voices with stereo ones that come and go (Tone's noise is stereo) flips
+  // between 1 and 2 channels on every hit, and Chrome rebuilds the filters after it with empty
+  // state each time: a pop on whatever else is playing through them. Pinned, it never flips.
+  const stereo = (node) => { node.channelCount = 2; node.channelCountMode = 'explicit'; return node }
 
   // A reverb and a dotted-eighth echo, with a helper that wires a source dry plus sends
   async function makeFx(io, { decay = 6.5 } = {}) {
@@ -27,12 +31,12 @@
     const verb = new Tone.Reverb({ decay, preDelay: 0.03, wet: 1 })
     await verb.generate()
     verb.connect(out)
-    const verbIn = new Tone.Gain(1).connect(verb)
+    const verbIn = stereo(new Tone.Gain(1)).connect(verb)
     const echo = new Tone.FeedbackDelay({ delayTime: '8n.', feedback: 0.36, wet: 1 })
     const echoTone = new Tone.Filter(2600, 'lowpass')
     echo.chain(echoTone, out)
     echoTone.connect(new Tone.Gain(0.4).connect(verbIn))
-    const echoIn = new Tone.Gain(1).connect(echo)
+    const echoIn = stereo(new Tone.Gain(1)).connect(echo)
     const nodes = [verb, verbIn, echo, echoTone, echoIn]
     const send = (node, { dry = 1, rv = 0, ec = 0, to = out } = {}) => {
       const parts = [new Tone.Gain(dry)]
@@ -142,6 +146,6 @@
     list: [], // { id, label, blurb, local, file, create }
     add(def) { this.list.push(def) },
     get(id) { return this.list.find((d) => d.id === id) },
-    kit: { hz, fold, makeFx, makeTexture, makeDrone, makeSour, loadScript },
+    kit: { hz, fold, stereo, makeFx, makeTexture, makeDrone, makeSour, loadScript },
   }
 })()

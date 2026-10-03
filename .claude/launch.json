@@ -1,8 +1,6 @@
 {
   "version": "0.0.1",
   "configurations": [
-    { "name": "undertone", "runtimeExecutable": "node", "runtimeArgs": ["bridge/server.mjs"], "port": 4747 },
-    { "name": "tune-after", "runtimeExecutable": "sh", "runtimeArgs": ["-c", "S=/private/tmp/claude-501/-Users-coterboat-Documents-GitHub-undertone/12fe2528-fd04-426d-b6f9-7a7cf32b98b0/scratchpad/tune; K=$(cat \"$HOME/.config/undertone/gemini.key\"); HOME=$S/home-after UNDERTONE_HOME=$S/home-after/.undertone UNDERTONE_BRAIN_DIR=$S/home-after/brain UNDERTONE_SOURCES=0 UNDERTONE_SC_REPLY_PORT=0 UNDERTONE_SCLANG=/nonexistent GEMINI_API_KEY=\"$K\" exec node bridge/server.mjs 4750"], "port": 4750 },
-    { "name": "tune-before", "runtimeExecutable": "sh", "runtimeArgs": ["-c", "S=/private/tmp/claude-501/-Users-coterboat-Documents-GitHub-undertone/12fe2528-fd04-426d-b6f9-7a7cf32b98b0/scratchpad/tune; K=$(cat \"$HOME/.config/undertone/gemini.key\"); cd $S/before && HOME=$S/home-before UNDERTONE_HOME=$S/home-before/.undertone UNDERTONE_BRAIN_DIR=$S/home-before/brain UNDERTONE_SOURCES=0 UNDERTONE_SC_REPLY_PORT=0 UNDERTONE_SCLANG=/nonexistent GEMINI_API_KEY=\"$K\" exec node bridge/server.mjs 4751"], "port": 4751 }
+    { "name": "undertone", "runtimeExecutable": "node", "runtimeArgs": ["bridge/server.mjs"], "port": 4747 }
   ]
 }
