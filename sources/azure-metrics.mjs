@@ -14,29 +14,32 @@
 //       { "resource": "<resource id>", "metric": "Http5xx", "as": "errors", "failAt": 3 } ] } }
 //
 //   as: "pulse"   each minute's total plays as that many soft notes (eight at most per report)
-//   as: "errors"  a minute at or over failAt holds the sour note until a minute under it
+//   as: "errors"  a minute at or over failAt holds the sour note (check "prod-errors:<metric>")
+//                 until a minute under it
 //
 // Azure publishes a minute's numbers a minute or two late, so each minute is played once it's
-// three minutes old: the lane trails real time by about three minutes.
+// three minutes old: the lane trails real time by about three minutes. Every event carries
+// origin "azure", which makes the lane an outside source: it never leads, calls you or pings you.
 
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { execFile } from 'node:child_process'
+import { fileURLToPath } from 'node:url'
 
 const BRIDGE = 'http://127.0.0.1:' + (process.env.UNDERTONE_PORT || 4747)
 const CONFIG = path.join(os.homedir(), '.config', 'undertone', 'sources.json')
 const SETTLE_MS = 3 * 60_000
 
-async function send(events) {
+async function postToBridge(events) {
   try {
     await fetch(BRIDGE + '/event', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(events) })
   } catch {}
 }
 
-const laneOf = (name, cfg) => ({ lane: 'src-' + name, project: name, label: cfg.label || name, source: 'azure' })
+export const laneOf = (name, cfg) => ({ lane: 'src-' + name, project: name, label: cfg.label || name, origin: 'azure' })
 
-function az(args) {
+function runAz(args) {
   return new Promise((resolve, reject) => {
     execFile('az', args, { timeout: 45_000, maxBuffer: 8 * 1024 * 1024 }, (err, stdout, stderr) => {
       if (err) return reject(new Error((stderr || err.message).trim().split('\n').pop()))
@@ -45,59 +48,76 @@ function az(args) {
   })
 }
 
-// Per-minute totals for one metric over the last few minutes: [{ t, total }]
-async function minutes(m, now) {
-  const start = new Date(now - 10 * 60_000).toISOString()
-  const end = new Date(now).toISOString()
+// Per-minute totals for one metric over the last ten minutes: [{ t, total }]
+async function minutes(az, m, now) {
   const j = await az(['monitor', 'metrics', 'list', '--resource', m.resource, '--metric', m.metric, '--interval', 'PT1M',
-    '--aggregation', m.aggregation || 'Total', '--start-time', start, '--end-time', end, '-o', 'json'])
+    '--aggregation', m.aggregation || 'Total', '--start-time', new Date(now - 10 * 60_000).toISOString(), '--end-time', new Date(now).toISOString(), '-o', 'json'])
   const key = (m.aggregation || 'Total').toLowerCase()
-  const data = (((j.value || [])[0] || {}).timeseries || []).flatMap((ts) => ts.data || [])
   const by = new Map()
-  for (const d of data) {
+  for (const d of (((j.value || [])[0] || {}).timeseries || []).flatMap((ts) => ts.data || [])) {
     const t = Date.parse(d.timeStamp)
     by.set(t, (by.get(t) || 0) + (Number(d[key]) || 0))
   }
   return [...by].map(([t, total]) => ({ t, total })).sort((a, b) => a.t - b.t)
 }
 
-async function runSource(name, cfg) {
-  const lane = laneOf(name, cfg)
-  const seen = new Map() // metric index -> newest minute played
-  const failing = new Map()
-  await send([{ type: 'session.start', ...lane }])
-  setInterval(() => send([{ type: 'alive', ...lane }]), 60_000)
-
-  const tick = async () => {
-    const now = Date.now()
-    const out = []
-    for (const [i, m] of (cfg.metrics || []).entries()) {
-      let rows
-      try { rows = await minutes(m, now) } catch (err) { console.error(`undertone ${name}: ${m.metric}: ${err.message}`); continue }
-      const ripe = rows.filter((r) => r.t <= now - SETTLE_MS && r.t > (seen.get(i) || now - SETTLE_MS - 2 * 60_000))
-      if (!ripe.length) continue
-      seen.set(i, ripe[ripe.length - 1].t)
-      const total = Math.round(ripe.reduce((a, r) => a + r.total, 0))
-      if (m.as === 'errors') {
-        const bad = ripe.some((r) => r.total >= (m.failAt || 1))
-        if (bad && !failing.get(i)) { failing.set(i, true); out.push({ type: 'fail', ...lane }) }
-        if (!bad && failing.get(i)) { failing.set(i, false); out.push({ type: 'pass', ...lane }) }
-      } else if (total > 0) {
-        out.push({ type: 'pulse', ...lane, count: total, what: m.what || m.metric, kind: m.kind || 'chime' })
-      }
-    }
-    if (out.length) await send(out)
+// The events one metric's newly settled minutes make. Pure: `memo` carries what was already played
+// and whether the errors are on, so a minute plays once and a failure clears exactly once.
+export function eventsFor(lane, m, rows, memo, now) {
+  const ripe = rows.filter((r) => r.t <= now - SETTLE_MS && r.t > (memo.seen ?? now - SETTLE_MS - 2 * 60_000))
+  if (!ripe.length) return []
+  memo.seen = ripe[ripe.length - 1].t
+  if (m.as === 'errors') {
+    const check = 'prod-errors:' + String(m.metric).replace(/[^A-Za-z0-9_.-]/g, '').slice(0, 24)
+    const bad = ripe.some((r) => r.total >= (m.failAt || 1))
+    if (bad && !memo.failing) { memo.failing = true; return [{ type: 'fail', ...lane, check }] }
+    if (!bad && memo.failing) { memo.failing = false; return [{ type: 'pass', ...lane, check }] }
+    return []
   }
-  await tick()
-  setInterval(tick, (cfg.everySec || 60) * 1000)
+  const total = Math.round(ripe.reduce((a, r) => a + r.total, 0))
+  return total > 0 ? [{ type: 'pulse', ...lane, count: total, what: m.what || m.metric, kind: m.kind || 'chime' }] : []
+}
+
+// Polls one source. Each tick waits for the previous one: `az` can take a while per metric, and two
+// ticks at once would play the same minute twice.
+export function makeSource(name, cfg, { az = runAz, send = postToBridge, clock = () => Date.now(), log = console.error } = {}) {
+  const lane = laneOf(name, cfg)
+  const memos = (cfg.metrics || []).map(() => ({}))
+  let running = false
+  const tick = async () => {
+    if (running) return false
+    running = true
+    try {
+      const now = clock()
+      const out = []
+      for (const [i, m] of (cfg.metrics || []).entries()) {
+        try { out.push(...eventsFor(lane, m, await minutes(az, m, now), memos[i], now)) } catch (err) { log(`undertone ${name}: ${m.metric}: ${err.message}`) }
+      }
+      if (out.length) await send(out)
+      return true
+    } finally {
+      running = false
+    }
+  }
+  return { lane, tick }
+}
+
+async function runSource(name, cfg) {
+  const src = makeSource(name, cfg)
+  await postToBridge([{ type: 'session.start', ...src.lane }])
+  setInterval(() => postToBridge([{ type: 'alive', ...src.lane }]), 60_000)
+  const every = (cfg.everySec || 60) * 1000
+  const loop = async () => { await src.tick(); setTimeout(loop, every) }
+  loop()
 }
 
 // Plausible traffic for a site with a chatbot: a few chats a minute that drift up and down, and
 // every so often a burst of errors that clears a little later. Ten-second "minutes", to hear it fast.
 async function runMock(name) {
   const lane = laneOf(name, { label: name + ' (mock)' })
-  await send([{ type: 'session.start', ...lane }])
-  setInterval(() => send([{ type: 'alive', ...lane }]), 60_000)
+  const check = 'prod-errors:Http5xx'
+  await postToBridge([{ type: 'session.start', ...lane }])
+  setInterval(() => postToBridge([{ type: 'alive', ...lane }]), 60_000)
   let rate = 2
   let errorsUntil = 0
   setInterval(() => {
@@ -107,22 +127,27 @@ async function runMock(name) {
     for (let i = 0; i < 10; i++) if (Math.random() < rate / 10) chats++
     const out = []
     if (chats) out.push({ type: 'pulse', ...lane, count: chats, what: 'chats', kind: 'chime' })
-    if (!errorsUntil && Math.random() < 0.02) { errorsUntil = now + 40_000; out.push({ type: 'fail', ...lane }) }
-    if (errorsUntil && now > errorsUntil) { errorsUntil = 0; out.push({ type: 'pass', ...lane }) }
-    if (out.length) send(out)
+    if (!errorsUntil && Math.random() < 0.02) { errorsUntil = now + 40_000; out.push({ type: 'fail', ...lane, check }) }
+    if (errorsUntil && now > errorsUntil) { errorsUntil = 0; out.push({ type: 'pass', ...lane, check }) }
+    if (out.length) postToBridge(out)
   }, 10_000)
+  const bye = () => postToBridge([{ type: 'session.end', ...lane }]).then(() => process.exit(0))
+  process.on('SIGINT', bye)
+  process.on('SIGTERM', bye)
   console.log('undertone: mock traffic for ' + name + ' (ctrl-c to stop)')
 }
 
-const mock = process.argv.indexOf('--mock')
-if (mock >= 0) {
-  runMock(process.argv[mock + 1] || 'ourplace')
-} else {
-  let config
-  try { config = JSON.parse(fs.readFileSync(CONFIG, 'utf8')) } catch { config = null }
-  if (!config || !Object.keys(config).length) {
-    console.error('undertone: no sources yet. Describe them in ' + CONFIG + ' (see the top of this file), or try --mock ourplace')
-    process.exit(1)
+if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) {
+  const mock = process.argv.indexOf('--mock')
+  if (mock >= 0) {
+    runMock(process.argv[mock + 1] || 'ourplace')
+  } else {
+    let config
+    try { config = JSON.parse(fs.readFileSync(CONFIG, 'utf8')) } catch { config = null }
+    if (!config || !Object.keys(config).length) {
+      console.error('undertone: no sources yet. Describe them in ' + CONFIG + ' (see the top of this file), or try --mock ourplace')
+      process.exit(1)
+    }
+    for (const [name, cfg] of Object.entries(config)) runSource(name, cfg)
   }
-  for (const [name, cfg] of Object.entries(config)) runSource(name, cfg)
 }

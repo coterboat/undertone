@@ -1,6 +1,6 @@
 import { expect, mock, test } from 'claude-code/testing'
 
-type Opts = { root?: string; up?: boolean; stopBlocks?: () => boolean; brain?: Record<string, string> }
+type Opts = { root?: string; up?: boolean; stopBlocks?: () => boolean; brain?: Record<string, string>; git?: string }
 
 // Stubs for everything undertone asks Claude Code for. The bridge is a flag: `up`
 // answers /health, and every POST to /event is recorded as the batch it carried.
@@ -8,7 +8,7 @@ function stubAll(on: any, opts: Opts = {}) {
   const posted: any[] = []
   const ran: string[][] = []
   const spawned: string[][] = []
-  const state = { up: opts.up ?? true, fetches: 0 }
+  const state = { up: opts.up ?? true, fetches: 0, sessionId: 'a1b2c3d4-e5f6', registered: 0, brainReads: 0 }
   const clock = mock.clock(on, { now: Date.now() })
 
   on('env.get', ($: any, e: any) => ({ value: e.name === 'HOME' ? '/home/me' : undefined }))
@@ -17,6 +17,7 @@ function stubAll(on: any, opts: Opts = {}) {
   const JOURNAL = '/home/me/.claude/coter-brain/journal'
   on('fs.list', ($: any, e: any) => {
     const dir = String(e.path).replace(/\\/g, '/').replace(/\/$/, '')
+    if (dir === JOURNAL) state.brainReads += 1
     const kids = new Map<string, string>()
     for (const file of Object.keys(brain)) {
       const full = JOURNAL + '/' + file
@@ -31,10 +32,10 @@ function stubAll(on: any, opts: Opts = {}) {
     return brain[file] != null ? { value: brain[file] } : { deny: 'no such file' }
   })
   on('session.root', () => ({ value: opts.root ?? '/work/jobsnearme' }))
-  on('session.id', () => ({ value: 'a1b2c3d4-e5f6' }))
+  on('session.id', () => ({ value: state.sessionId }))
   on('session.start', () => ({ cwd: opts.root ?? '/work/jobsnearme' }))
   on('session.end', () => ({}))
-  on('command.register', () => ({ value: undefined }))
+  on('command.register', () => { state.registered += 1; return { value: undefined } })
   on('ui.log', () => ({ value: undefined }))
   on('http.fetch', ($: any, e: any) => {
     state.fetches += 1
@@ -45,6 +46,8 @@ function stubAll(on: any, opts: Opts = {}) {
   })
   on('process.run', ($: any, e: any) => {
     ran.push([...e.argv])
+    // `git rev-parse --show-toplevel --git-common-dir`: opts.git is its output; otherwise not a repo
+    if (e.argv[0] === 'git' && e.argv[1] === 'rev-parse') return { value: opts.git ? { exitCode: 0, stdout: opts.git, stderr: '' } : { exitCode: 128, stdout: '', stderr: 'not a git repository' } }
     return { value: { exitCode: 0, stdout: '', stderr: '' } }
   })
   on('process.spawn', async function* ($: any, e: any) {
@@ -167,8 +170,9 @@ test('/undertone off stops sending until /undertone on', async ($: any, on: any)
   expect(types(posted).slice(2)).toEqual(['session.start', 'tool'])
 })
 
-test('with no bridge running, events are dropped and it only retries every 15 seconds', async ($: any, on: any) => {
-  const { state, clock } = stubAll(on, { up: false })
+test('with no bridge ever seen, events wait, it retries every 15 seconds, and it never starts one', async ($: any, on: any) => {
+  // Changed in 0.3: events are kept (500, 5 minutes) instead of dropped, and resent in order
+  const { state, clock, spawned, posted } = stubAll(on, { up: false })
   await start($, clock)
   const afterFirst = state.fetches
   expect(afterFirst).toBe(1)
@@ -181,6 +185,14 @@ test('with no bridge running, events are dropped and it only retries every 15 se
   await $.tool.call({ tool: 'Read', file_path: '/x' })
   await clock.advance(200)
   expect(state.fetches).toBe(afterFirst + 1)
+  expect(spawned).toHaveLength(0)
+  // Once a bridge answers, everything that waited arrives in order
+  state.up = true
+  await clock.advance(15_000)
+  await $.tool.call({ tool: 'Edit', file_path: '/x', old_string: 'a', new_string: 'b' })
+  await clock.advance(200)
+  expect(types(posted)).toEqual(['session.start', 'tool', 'tool', 'tool', 'tool', 'tool', 'waiting', 'tool', 'tool'])
+  expect(posted[posted.length - 1].tool).toBe('Edit')
 })
 
 test('a session sends a heartbeat every minute, so a closed one leaves the page', async ($: any, on: any) => {
@@ -225,4 +237,81 @@ test("the drone hears coter-kit's open questions per project, answered and expir
   // Unchanged counts aren't sent again
   await clock.advance(120_500)
   expect(posted.filter((e) => e.type === 'waiting')).toHaveLength(1)
+})
+
+test('session.start on resume, clear and compaction sets up one heartbeat, one command, and one brain read per start', async ($: any, on: any) => {
+  const { posted, clock, state } = stubAll(on)
+  for (let i = 0; i < 4; i++) await $.session.start({ surface: 'terminal', isInteractive: true, cwd: '/work' })
+  await clock.advance(180_500)
+  expect(types(posted).filter((t) => t === 'alive')).toHaveLength(3)
+  expect(state.registered).toBe(1)
+  // four reads, one per start, plus one from the two-minute check; not one per start per interval
+  expect(state.brainReads).toBe(5)
+})
+
+test('a new session id ends the old lane before the new one starts', async ($: any, on: any) => {
+  const { posted, clock, state } = stubAll(on)
+  await start($, clock)
+  state.sessionId = 'b2c3d4e5-f6a7'
+  await start($, clock)
+  expect(posted.map((e) => e.type + ':' + e.lane)).toEqual(['session.start:a1b2c3d4', 'session.end:a1b2c3d4', 'session.start:b2c3d4e5'])
+})
+
+test('a failing npm test then a passing lint leaves tests failing; a passing npm test clears them', async ($: any, on: any) => {
+  const { posted, clock } = stubAll(on)
+  await start($, clock)
+  await $.tool.call({ tool: 'Bash', command: 'npm test # FAIL' })
+  await $.tool.call({ tool: 'Bash', command: 'npm run lint' })
+  await $.tool.call({ tool: 'Bash', command: 'npm test' })
+  await clock.advance(200)
+  const checks = posted.filter((e) => e.type === 'fail' || e.type === 'pass').map((e) => e.type + ':' + e.check)
+  expect(checks).toEqual(['fail:test', 'pass:lint', 'pass:test'])
+})
+
+test('a scheduled run is marked from its first prompt, and neither the prompt nor the task name leaves', async ($: any, on: any) => {
+  const { posted, clock } = stubAll(on)
+  await start($, clock)
+  await $.prompt.submit({ text: '<scheduled-task name="concurrent-bots-loop" file="/x/SKILL.md">\nThis is an automated run', wait: false, origin: { kind: 'user' } })
+  await $.tool.call({ tool: 'Read', file_path: '/x' })
+  await clock.advance(200)
+  expect(posted.filter((e) => e.type !== 'session.start').every((e) => e.scheduled === true)).toBe(true)
+  const wire = JSON.stringify(posted)
+  expect(wire).not.toContain('concurrent-bots-loop')
+  expect(wire).not.toContain('scheduled-task')
+})
+
+test('a bridge that was running is started again once when it stops answering, and what waited arrives in order', async ($: any, on: any) => {
+  const { posted, clock, spawned, state } = stubAll(on, { up: true })
+  await start($, clock)
+  state.up = false
+  await $.tool.call({ tool: 'Read', file_path: '/a' })
+  await clock.advance(200)
+  await clock.advance(3_500) // ensureBridge waits on its health checks
+  expect(spawned).toHaveLength(1)
+  state.up = false // it died again straight away
+  await clock.advance(15_000)
+  await $.tool.call({ tool: 'Read', file_path: '/b' })
+  await clock.advance(3_700)
+  expect(spawned).toHaveLength(1) // not again within a minute
+  state.up = true
+  await clock.advance(15_000)
+  await $.tool.call({ tool: 'Edit', file_path: '/c', old_string: 'a', new_string: 'b' })
+  await clock.advance(200)
+  expect(posted.filter((e) => e.type === 'tool').map((e) => e.tool)).toEqual(['Read', 'Read', 'Edit'])
+})
+
+test('after /undertone stop, a bridge that stops answering is left alone', async ($: any, on: any) => {
+  const { clock, spawned, state } = stubAll(on, { up: true })
+  await start($, clock)
+  await $.command.run({ command: 'undertone', args: 'stop' })
+  state.up = false
+  await $.tool.call({ tool: 'Read', file_path: '/a' })
+  await clock.advance(5_000)
+  expect(spawned).toHaveLength(0)
+})
+
+test('a sibling git worktree plays as its main checkout · the worktree folder', async ($: any, on: any) => {
+  const { posted, clock } = stubAll(on, { root: '/Users/me/GitHub/EO7-sprites', git: '/Users/me/GitHub/EO7-sprites\n/Users/me/GitHub/EO7/.git\n' })
+  await start($, clock)
+  expect(posted[0]).toMatchObject({ project: 'EO7', label: 'EO7 · EO7-sprites' })
 })

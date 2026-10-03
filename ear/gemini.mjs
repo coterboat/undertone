@@ -3,7 +3,8 @@
 // spectrogram and stats, and tunes the engines.
 //
 // The key comes from GEMINI_API_KEY or ~/.config/undertone/gemini.key (a file with just the
-// key; chmod 600). Only the audio and musical facts go to Google: no project names.
+// key; chmod 600). Only the audio and musical facts go to Google: no project names, and a
+// reaction's note only when UNDERTONE_GEMINI_NOTE=1.
 //
 //   node ear/gemini.mjs <clip folder>     critique one clip by hand
 
@@ -34,7 +35,8 @@ export function promptFor(meta, stats) {
     '',
     `This clip is ${stats.seconds} seconds from the "${s.engine || 'unknown'}" engine, mood "${s.moodName || s.mood || '?'}" ` +
       `(${s.key || '?'}, ${s.bpm || '?'} bpm), tape/vinyl texture at ${Math.round((s.texture ?? 0) * 100)}%. ` + (VERDICT[meta.kind] || ''),
-    meta.note ? `Their note: "${meta.note}"` : '',
+    // A note can say anything, so it goes to Google only when UNDERTONE_GEMINI_NOTE=1
+    meta.note && process.env.UNDERTONE_GEMINI_NOTE === '1' ? `Their note: "${meta.note}"` : '',
     '',
     // No measurements on purpose: Claude already has those, so this stays an independent second opinion
     'Judge only by ear. Answer like a mix engineer and producer, specific and blunt, no praise padding:',

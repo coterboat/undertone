@@ -1,6 +1,8 @@
 # undertone
 
-Your Claude Code sessions, played as music, and a way for them to tell you what needs you without you looking. Each session is a voice with its own three-note call, every tool call is a note, a commit resolves the chord, a broken build holds a sour note, and every question waiting on you hums underneath until you answer.
+Your Claude Code sessions, played as music, and a way for them to tell you what needs you without you looking. Each session is a voice with its own three-note call, every tool call is a note, a commit resolves the chord, a broken build holds a sour note that names what broke, and every question waiting on you hums underneath until you answer.
+
+Claude Code is the only coding tool it hears. Outside sources (a production site, a bot) can post events to it; Codex or Grok sessions would need sources of their own.
 
 ## Quick start
 
@@ -17,9 +19,11 @@ Then open http://127.0.0.1:4747 and press Play. From inside Claude Code, `/under
 | A session's call ending on a rising, held note | That session needs you. A permission prompt asks again every minute (three times at most); an idle session asks once |
 | A session's call settling on the chord's root | That session finished its turn: your move |
 | A low drone that grows | Questions waiting on you, counted from coter-kit's `waiting` notes in every project you have on |
-| A sour, trembling tritone over every chord | A build is broken: a failing test, build, typecheck or lint, or coter-kit's checks blocking a stop |
+| A session's call ending flat, then a sour note held over every chord | Something that session runs is broken. Each kind has its own sour note: tests a tritone, typecheck a high grinding second, lint a softer seventh, build a low second, production errors a low rumble; the score names it ("tests (vitest) failing") |
 
-A call comes from the project and worktree, not the session, so `jobsnearme · oct2-signup` sounds the same every time it starts and you learn who's calling. The ending carries the meaning: settled means done, rising means it needs you. Everything else is texture: tool calls are notes in the session's voice (reads low, edits on chord tones, commands high), drums fade in while Claude works, a commit resolves the progression home with a bell, a checklist step climbs a bell, and a fixed build slides the sour note into the chord.
+A call comes from the project and worktree, not the session, so `jobsnearme · oct2-signup` sounds the same every time it starts and you learn who's calling. The ending carries the meaning: settled means done, rising means it needs you. Everything else is texture: tool calls are notes in the session's voice (reads low, edits on chord tones, commands high), drums fade in while Claude works, a commit resolves the progression home with a bell, a checklist step climbs a bell, and a fixed check plays the session's call settled and slides the sour note into the chord. Each check fails and clears on its own: a passing lint doesn't clear failing tests.
+
+A scheduled run (a desktop scheduled task) plays quietly: no calls when its turn ends, no notes for just looking around, only edits, commits, failures and a permission prompt that blocks it.
 
 ## Sound engines
 
@@ -29,10 +33,10 @@ Pick one at the top of the page. The page conducts in every case (harmony, timin
 | :- | :- | :- | :- |
 | **Synth** | Tone.js, everything synthesized: FM keys, saw pads, membrane drums | Anywhere, also the published page | Full, but every sound is hand-built in the browser |
 | **Sampled** | Real recordings via smplr: Wurlitzer, vibraphone, nylon guitar, Mellotron strings, upright bass, LinnDrum | Local page (fetches samples) | Pick and layer instruments; little sound design |
-| **Strudel** | Strudel's sound engine (superdough): Salamander piano, VCSL kalimba, vibes, harp, an MPC60 kit, effects on every note | Local page (fetches sample banks) | Per-note effects and a big library |
+| **Strudel** | Strudel's sound engine (superdough): Salamander piano, folk harp, vibes, hand chimes, an MPC60 kit, effects on every note | Local page (fetches sample banks) | Per-note effects and a big library |
 | **SuperCollider** | Native synthesis: Karplus-Strong plucks, modal bells, FM Rhodes, analog-style drums, through your computer's audio | Local page, with SuperCollider installed | The most: synths and effects written as code in `sc/undertone.scd` |
 
-SuperCollider is started by the bridge (`sclang` running `sc/undertone.scd`) the first time you pick it. It boots on your default output device, using an output-only device for input as well, so it never asks macOS for the microphone. If you switch outputs (say, to headphones), stop the bridge and start it again so SuperCollider picks up the new device. Install it with `brew install --cask supercollider`.
+SuperCollider is started by the bridge (`sclang` running `sc/undertone.scd`) the first time you pick it. It boots on your default output device, using an output-only device for input as well, so it never asks macOS for the microphone. If you switch outputs (say, to headphones), stop the bridge and start it again so SuperCollider picks up the new device. Install it with `brew install --cask supercollider` on a Mac; on Windows the bridge finds the newest `C:\Program Files\SuperCollider-*\sclang.exe`. `UNDERTONE_SCLANG` points it anywhere else.
 
 ## Ears
 
@@ -59,7 +63,7 @@ Each one lands in `~/.undertone/ear/<date>/<time>-<engine>-<kind>/`:
 
 ### Gemini as a second pair of ears
 
-With a Gemini API key, every clip is sent to Gemini, which writes `critique.md`: the vibe, each element, problems, and the three changes that would help most. Only the audio and musical facts go to Google, never project names. Get a key at [Google AI Studio](https://aistudio.google.com/apikey), copy it, and save it without pasting it anywhere else:
+With a Gemini API key, every clip is sent to Gemini, which writes `critique.md`: the vibe, each element, problems, and the three changes that would help most. It listens blind (no measurements), so it's an independent second opinion. Only the audio and musical facts go to Google, never project names; a reaction's note only with `UNDERTONE_GEMINI_NOTE=1`. Get a key at [Google AI Studio](https://aistudio.google.com/apikey), copy it, and save it without pasting it anywhere else:
 
 ```bash
 mkdir -p ~/.config/undertone && pbpaste > ~/.config/undertone/gemini.key && chmod 600 ~/.config/undertone/gemini.key
@@ -69,23 +73,51 @@ mkdir -p ~/.config/undertone && pbpaste > ~/.config/undertone/gemini.key && chmo
 
 ## Your phone
 
-When a session has had a permission prompt waiting for a minute (or has sat idle for five), the bridge pings your phone through [ntfy](https://ntfy.sh): a free app with no account. Anything the session does first cancels the ping, so at your desk you only hear the call. Setup is `~/.config/undertone/ntfy.json`:
+When a session has had a permission prompt waiting for a minute (or has sat idle for five), the bridge pings your phone through [ntfy](https://ntfy.sh): a free app with no account. Anything the session does first cancels the ping, so at your desk you only hear the call. Setup is `~/.config/undertone/ntfy.json` (`chmod 600`):
 
 ```json
-{ "server": "https://ntfy.sh", "topic": "undertone-<random>", "permissionAfterSec": 60, "idleAfterSec": 300 }
+{ "server": "https://ntfy.sh", "topic": "undertone-<random>", "names": "project", "permissionAfterSec": 60, "idleAfterSec": 300 }
 ```
 
-On ntfy.sh a topic is private only because nobody can guess it, so keep it random. A ping carries the lane's name (project and worktree), never code or prompts. Install ntfy on the phone and subscribe to the topic. `curl -X POST http://127.0.0.1:4747/notify/test` sends a test.
+| Field | Default | |
+| :- | :- | :- |
+| `server` | `https://ntfy.sh` | Must be https (plain http only on localhost) |
+| `topic` | | At least 16 characters unless you set a token |
+| `token` | | An ntfy access token, sent as `Authorization: Bearer`; or `UNDERTONE_NTFY_TOKEN` |
+| `names` | `project` | What the ping says: `full` (project · worktree), `project`, or `none` ("A session needs your OK") |
+| `enabled` | `true` | `false` turns pings off without deleting the file (say, when another app owns phone pushes) |
+| `permissionAfterSec`, `idleAfterSec` | 60, 300 | How long a session waits before your phone hears about it |
+
+What leaves the machine: a title (that name plus "needs your OK" or "is waiting for you"), a fixed message, a priority and a tag, sent to `server` as JSON. Never code, prompts or anything else from the session. On the public ntfy.sh, the topic is the only protection without a token: anyone who knows it can read your pings and send fake ones, and ntfy.sh keeps messages for about 12 hours. A reserved topic with a token, or your own ntfy server, closes that.
+
+Only Claude Code sessions the bridge has heard start (or heartbeat) can ping, never outside sources; a scheduled run pings only for a permission prompt that blocks it. At most one ping per session every 15 minutes and 12 an hour; the rest are dropped and counted. The bridge refuses to send, and says why in `/health` under `notify`, when `server` isn't https, the topic is short with no token, or the file can be read by other users. Install ntfy on the phone, subscribe to the topic, and `curl -X POST http://127.0.0.1:4747/notify/test` sends a test.
 
 ## Sources beyond Claude
 
-Anything can post events to the bridge. An outside source gets a lane of its own that colors the music but never leads it: a `pulse` event (`count` things happened) plays that many soft high notes, and `fail` / `pass` hold and release the sour note.
+Anything can post events to the bridge. An outside source marks its events with `origin` (and its lane id starts with `src-`), which gives it a lane of its own that colors the music but never leads it, never calls you and never pings your phone: a `pulse` event (`count` things happened) plays that many soft high notes, and `fail` / `pass` with a `check` hold and release the sour note.
 
-`sources/azure-metrics.mjs` turns Azure Monitor metrics into a source: counts per minute (requests, model calls, errors), never logs or traces, so nothing a user typed can come through. Describe sources in `~/.config/undertone/sources.json` (format at the top of the file), log in with `az login`, then run `npm run sources`. `npm run sources:mock` plays made-up chatbot traffic, to hear it before anything is wired. Azure publishes each minute's numbers late, so the lane trails real time by about three minutes.
+`sources/azure-metrics.mjs` turns Azure Monitor metrics into a source: counts per minute (requests, model calls, errors), never logs or traces, so nothing a user typed can come through. Production errors fail as check `prod-errors:<metric>`. Describe sources in `~/.config/undertone/sources.json` (format at the top of the file), log in with `az login`, then run `npm run sources`. `npm run sources:mock` plays made-up chatbot traffic, to hear it before anything is wired. Azure publishes each minute's numbers late, so the lane trails real time by about three minutes.
+
+## State
+
+`GET http://127.0.0.1:4747/state` answers with every session as the bridge sees it, for the page and anything else (a dashboard) that wants it:
+
+```json
+{ "ok": true, "at": 1791050000000, "waitingBy": { "jobsnearme": 4 },
+  "lanes": [{ "lane": "a1b2c3d4", "project": "jobsnearme", "label": "jobsnearme · lane-2",
+              "state": "needs_ok", "needsReason": "permission", "needsSince": 1791049940000,
+              "failing": { "test:vitest": 1791049000000 }, "failingChecks": ["test:vitest"],
+              "checklist": { "done": 3, "total": 6 }, "scheduled": false, "external": false,
+              "known": true, "openedAt": 1791040000000, "last": 1791049990000, "lastWork": 1791049900000 }] }
+```
+
+`state` is `working`, `needs_ok` (a permission prompt), `your_move` (a turn ended, or Claude sat idle: `needsReason` says which) or `idle` (no work for 15 minutes). A session silent for three minutes is gone. The same picture comes first on `/events`, so a reloaded page keeps pending calls and broken builds, and the bridge rebuilds it from the logs when it restarts. The logic lives in `lib/lanes.mjs`, shared by the bridge and the page.
 
 ## Event log
 
-The bridge appends every event to `~/.undertone/log/<date>.jsonl`: session starts and heartbeats, prompts, turns, tool calls, commits, failing and passing checks, calls for you. It's the raw material for metrics such as time per project, time Claude spent waiting on you, and how long builds stayed broken.
+The bridge appends every event to `~/.undertone/log/<date>.jsonl`: session starts and heartbeats, prompts, turns, tool calls, commits, failing and passing checks by name, calls for you. It's the raw material for metrics such as time per project, time Claude spent waiting on you, and how long builds stayed broken.
+
+Nothing expires by default: the clips are what teaches Claude to hear, and the logs (a few KB a day) are your history. `UNDERTONE_EAR_DAYS` and `UNDERTONE_LOG_DAYS` delete clip days and logs older than that many days, on start and daily; pruned clips stay in `ear/index.jsonl`, marked `"pruned": true`.
 
 ## Projects
 
@@ -104,13 +136,17 @@ coter-kit's brain (open questions) ───────────────
 | Part | What it is |
 | :- | :- |
 | `hooks/register.js` | The mod, a plugin of function hooks like coter-kit. It turns session events into small JSON events, sends a heartbeat every minute, and counts coter-kit's open questions per project. |
-| `bridge/server.mjs` | A zero-dependency Node server on 127.0.0.1. It serves the page, relays events over server-sent events, drops sessions silent for three minutes, and talks OSC to SuperCollider. |
+| `hooks/commands.js` | Reads a Bash command for commits, pushes and which checks ran, and whether its exit code is theirs (not through `\| tail`, `\|\| true`, `;` or `&`). |
+| `hooks/waiting.js` | Counts coter-kit's open questions per project, each question once. |
+| `lib/lanes.mjs` | Every session's state, shared by the bridge and the page. |
+| `bridge/server.mjs` | A zero-dependency Node server on 127.0.0.1. It serves the page and `/state`, relays events over server-sent events, pings your phone, and talks OSC to SuperCollider. |
 | `web/index.html` | The conductor and the score. The same file is published as a claude.ai artifact, where it runs the demo on the Synth engine. |
 | `web/engines/*.js` | The engines. Each takes the same calls (`pad`, `bass`, `voice`, `drum`, `bell`, `sour`, `drone`, `texture`, `energy`); `common.js` describes them. |
 | `sc/undertone.scd` | SuperCollider's synths, effects and OSC handlers. |
 | `ear/analyze.mjs`, `ear/gemini.mjs` | The ears: clip analysis and spectrograms, and Gemini's critique. |
 | `sources/azure-metrics.mjs` | An outside source: Azure Monitor metrics as a lane. |
-| `tests/undertone.test.ts` | Mod tests; run them with `claude plugin test .` |
+| `tests/undertone.test.ts` | Mod tests: `claude plugin test .` |
+| `tests/unit/`, `tests/bridge/` | The pure modules, and the bridge run for real: `npm test` |
 
 ## coter-kit
 
@@ -120,9 +156,19 @@ undertone is a sibling mod: it never touches coter-kit's code. It hears coter-ki
 claude plugin install undertone@coter-kit
 ```
 
-## Privacy
+## Privacy and security
 
-Event types, tool names (an MCP tool's server prefix stripped), project folder names and the number of open questions per project leave the session. Prompt text, file paths, command lines and the questions themselves never do. The bridge listens on 127.0.0.1 only, keeps only the fields the page reads, and refuses posts without a JSON content type, so a web page can't post to it without a CORS preflight it never answers.
+What leaves the session, to the local bridge: event types, tool names (an MCP tool's server prefix stripped), check names (`test`, `typecheck`, `lint`, `build`, `checks`, with a tool such as `vitest`), project and worktree folder names, counts, and whether the session is a scheduled run. Never prompt text, file paths, command lines or the questions themselves.
+
+What leaves the machine:
+
+| To | What | When |
+| :- | :- | :- |
+| Your ntfy server (ntfy.sh by default) | A ping's title (per `names`), a fixed message, priority and tag | A session waits on you (see Your phone) |
+| Google (Gemini) | A clip's audio, engine, mood, key, tempo, texture level, reaction kind; its note only with `UNDERTONE_GEMINI_NOTE=1` | You press Love this, This grates or Snapshot, with a Gemini key set |
+| Nowhere else | Outside sources run locally: Azure is read through your own `az` CLI, and only counts reach the bridge | |
+
+The bridge listens on 127.0.0.1 only and answers only requests addressed to `127.0.0.1:<port>` or `localhost:<port>` (anything else gets 421), so a web page can't reach it through DNS rebinding. Posts from another origin get 403, and posts need a JSON content type. It keeps only the fields the page reads.
 
 ## Commands
 
@@ -131,9 +177,9 @@ Event types, tool names (an MCP tool's server prefix stripped), project folder n
 | `/undertone` | Start the bridge if needed and open the page |
 | `/undertone status` | Is the bridge up, and is this session sending |
 | `/undertone off`, `/undertone on` | Stop or resume sending this session's events |
-| `/undertone stop` | Stop the bridge, if this session started it |
+| `/undertone stop` | Stop the bridge if this session started it, and stop restarting it |
 
-A bridge started by `/undertone` lives as long as that session. For one that outlives sessions, run `npm start` in a terminal.
+A bridge started by `/undertone` lives as long as that session. If a bridge this session saw in the last half hour stops answering, the session starts it again (at most once a minute) and keeps up to 500 events or 5 minutes of them to send once it's back; with no bridge ever seen, it never starts one. Phone pings stop while no bridge runs. For a bridge independent of any session, run `npm start` in a terminal (or from a login agent).
 
 ## Settings
 
@@ -141,3 +187,14 @@ A bridge started by `/undertone` lives as long as that session. For one that out
 | :- | :- | :- |
 | `port` | 4747 | The bridge's port on 127.0.0.1 |
 | `brainDir` | `~/.claude/coter-brain` | Where coter-kit's brain lives |
+
+The bridge reads these from its environment:
+
+| Variable | |
+| :- | :- |
+| `UNDERTONE_PORT` | The port, when not given as an argument |
+| `UNDERTONE_HOME` | Where logs and clips go (default `~/.undertone`) |
+| `UNDERTONE_EAR_DAYS`, `UNDERTONE_LOG_DAYS` | Delete clips and logs older than this (default 0: keep) |
+| `UNDERTONE_NTFY_TOKEN` | An ntfy access token |
+| `UNDERTONE_SCLANG` | Where SuperCollider's `sclang` is |
+| `GEMINI_API_KEY`, `UNDERTONE_GEMINI_MODEL`, `UNDERTONE_GEMINI_NOTE` | Gemini's key (or `~/.config/undertone/gemini.key`), model, and whether notes go too |

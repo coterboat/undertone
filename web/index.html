@@ -258,7 +258,7 @@ tr.attn td:first-child { color: var(--call); }
     <ul class="legend">
       <li><i style="background: var(--lane1)"></i>tool call</li>
       <li><i style="background: var(--gold)"></i>commit, the chord lands home</li>
-      <li><i style="background: var(--fail)"></i>build failing</li>
+      <li><i style="background: var(--fail)"></i>failing, named: tests, typecheck, lint, build, prod</li>
       <li><i style="background: var(--call)"></i>needs you</li>
       <li><i style="background: var(--drone)"></i>questions waiting on you</li>
     </ul>
@@ -325,8 +325,8 @@ tr.attn td:first-child { color: var(--call); }
           <tr class="attn"><td>Needs your OK</td><td>a permission prompt; an idle session</td><td>That session's call, ending on a rising note. A permission prompt asks again softly every minute (three times at most) until you answer; an idle session asks once.</td></tr>
           <tr class="attn"><td>Your move</td><td>Claude finishes a turn</td><td>That session's call, settling on the chord's root. Each session has its own three-note call, so you learn who's talking.</td></tr>
           <tr class="attn"><td>Waiting on you</td><td>coter-kit waiting notes, every project</td><td>A low drone, one layer per open question, under everything until you answer.</td></tr>
-          <tr class="attn"><td>Build breaks</td><td>a failing test, build, typecheck or lint; coter-kit checks blocking a stop</td><td>A sour tritone holds over every chord.</td></tr>
-          <tr><td>Build fixed</td><td>the same kind of check passes</td><td>The sour note slides into the chord and rings out.</td></tr>
+          <tr class="attn"><td>Something breaks</td><td>a failing test, typecheck, lint or build; coter-kit checks blocking a stop; production errors</td><td>The session's call with its last note flat, then a sour note held over every chord. Each kind has its own: tests a tritone, typecheck a high grinding second, lint a softer seventh, build a low second, production errors a low rumble. The score names it.</td></tr>
+          <tr><td>It's fixed</td><td>the same check passes (a different check passing doesn't count)</td><td>The session's call, settled, and the sour note slides into the chord.</td></tr>
           <tr><td>Commit</td><td><code>git commit</code> in Bash</td><td>The progression resolves to the home chord, with a bell.</td></tr>
           <tr><td>Tool call</td><td>every tool call</td><td>A note in that session's voice. Reads sit low, edits land on chord tones, commands ride high.</td></tr>
           <tr><td>Claude is working</td><td>turn start / end</td><td>Drums fade in. When every session goes quiet, it thins back to pads and tape hiss.</td></tr>
@@ -345,8 +345,12 @@ tr.attn td:first-child { color: var(--call); }
 <script src="engines/strudel.js"></script>
 <script src="engines/supercollider.js"></script>
 <script>
-(() => {
+(async () => {
 'use strict';
+
+// What the page shares with the bridge (lib/lanes.mjs): which lanes are outside sources, which
+// check a failure is about, and the sour note each kind of failure gets
+const L = await import('./lib/lanes.mjs');
 
 const qs = (s) => document.querySelector(s);
 const LIVE = location.protocol === 'http:' && /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname);
@@ -447,6 +451,7 @@ const S = {
   volume: typeof saved.volume === 'number' ? saved.volume : 0,
   sourOn: false,
   sourMidi: 0,
+  sourCheck: 'build',   // the newest failure's check: it picks the sour note's interval and register
   waitBrain: {},        // project -> open questions, from coter-kit's brain (live)
   waitLocal: {},        // project -> open questions from the jam deck and the demo
   frozenAt: wall(),
@@ -663,7 +668,7 @@ function pickNote(ln, kind) {
 function playLane(ln, midi, time, vel, dur) {
   if (ln.muted || ln.off) return;
   const d = Tone.Time(dur || DUR[ln.timbre]).toSeconds();
-  E('voice', ln.timbre, midi, time, d, vel);
+  E('voice', ln.timbre, midi, time, d, ln.scheduled ? vel * 0.5 : vel);
   vis.notes.push({ t: toVis(time), lane: ln.id, midi, vel, dur: d });
 }
 
@@ -741,23 +746,53 @@ function callOf(ln, asking) {
   return notes;
 }
 
+// Who broke something: that lane's own call, its last note a semitone flat, as the sour note arrives
+function playBroke(ln) {
+  if (ln.off || ln.muted) return;
+  const notes = callOf(ln, false);
+  notes[notes.length - 1] -= 1;
+  phrase(ln, notes, '8n', 0.6, false, '2n');
+  vis.marks.push({ t: wall(), type: 'broke', lane: ln.id });
+}
+
+// And fixed it: the same call, settled
+function playFixed(ln) {
+  if (ln.off || ln.muted) return;
+  phrase(ln, callOf(ln, false), '8n', 0.5, false, '4n');
+}
+
 function playCall(ln, asking, quieter) {
   if (!S.callsOn || ln.off || ln.muted) return;
   phrase(ln, callOf(ln, asking), '8n', quieter ? 0.4 : 0.6, false, asking ? '2n' : '4n');
   vis.marks.push({ t: wall(), type: asking ? 'call' : 'done', lane: ln.id });
 }
 
-const sourMidi = () => fold(S.chord.root + 6, 66, 77);
+const sourMidi = () => L.sourFor(S.sourCheck, S.chord.root);
+
+// The newest failure speaks: its check picks the sour note (L.sourFor), so you hear what broke
+function newestFailure() {
+  let newest = null;
+  for (const l of lanes.values()) {
+    if (l.off || l.ended) continue;
+    for (const span of Object.values(l.failChecks)) if (!newest || span.start > newest.start) newest = span;
+  }
+  return newest;
+}
 
 function updateSour() {
-  const failing = [...lanes.values()].some((l) => l.failing && !l.off);
-  if (!S.audio) { S.sourOn = failing; return; }
+  const newest = newestFailure();
+  if (!S.audio) { S.sourOn = !!newest; if (newest) S.sourCheck = newest.check; return; }
   const now = Tone.now() + 0.05;
-  if (failing && !S.sourOn) {
+  if (newest && !S.sourOn) {
     S.sourOn = true;
+    S.sourCheck = newest.check;
     S.sourMidi = sourMidi();
     E('sour', 'on', S.sourMidi, now);
-  } else if (!failing && S.sourOn) {
+  } else if (newest && newest.check !== S.sourCheck) {
+    S.sourCheck = newest.check;
+    S.sourMidi = sourMidi();
+    E('sour', 'move', S.sourMidi, now);
+  } else if (!newest && S.sourOn) {
     S.sourOn = false;
     // Slide into the nearest chord tone above, then let it ring out with a bell
     let target = S.sourMidi;
@@ -804,11 +839,11 @@ function ensureLane(e, source) {
       color: laneColor(n),
       // Keyed to the project and worktree, not the session, so a lane keeps its call across sessions
       motif: MOTIFS[hash(proj + '|' + String(e.label || proj)) % MOTIFS.length],
-      queue: [], energy: 0.15, busy: false, failing: false, muted: false, off: !projectOn(proj),
+      queue: [], energy: 0.15, busy: false, failChecks: {}, muted: false, off: !projectOn(proj),
       done: 0, total: 0, idx: null, pool: null, ended: false, last: wall(), lastWork: wall(),
       needs: null, callsLeft: 0, nextCall: 0, fails: [],
       // An outside source (a production site, a bot) colours the music but never leads it
-      external: !!e.source || e.type === 'pulse', pulses: [], what: '',
+      external: L.isExternal(e), scheduled: !!e.scheduled, pulses: [], what: '',
     };
     lanes.set(id, ln);
     ln.pool = poolFor(mood(), S.chord, ln.timbre);
@@ -824,7 +859,7 @@ function ensureLane(e, source) {
 function removeLane(ln, quick) {
   ln.ended = true;
   ln.needs = null;
-  if (ln.failing) { ln.failing = false; updateSour(); }
+  if (Object.keys(ln.failChecks).length) { ln.failChecks = {}; updateSour(); }
   clearTimeout(ln.rmTimer);
   ln.rmTimer = setTimeout(() => {
     if (!ln.ended) return;
@@ -861,6 +896,8 @@ function ingest(e, source) {
   if (e.type === 'session.end' && !lanes.has(String(e.lane))) return;
   const ln = ensureLane(e, source);
   ln.last = wall();
+  if (e.scheduled) ln.scheduled = true;
+  if (L.isExternal(e)) ln.external = true;
   if (e.type === 'alive') return;
   if (WORK.has(e.type)) { ln.lastWork = wall(); ln.needs = null; }
   const kick = (x) => { ln.energy = clamp(ln.energy + x, 0, 1); };
@@ -876,6 +913,7 @@ function ingest(e, source) {
       break;
     case 'prompt': {
       kick(0.25);
+      if (ln.scheduled) break; // a scheduled run plays quietly: no pickup
       const p = m(); const i = Math.floor(p.length * 0.35);
       phrase(ln, [p[i], p[i + 1], p[i + 3]].filter(Boolean), '8n', 0.5);
       vis.marks.push({ t: wall(), type: 'prompt', lane: ln.id });
@@ -884,11 +922,13 @@ function ingest(e, source) {
     case 'turn.start': ln.busy = true; kick(0.1); break;
     case 'turn.end':
       ln.busy = false;
+      if (ln.scheduled) { ln.needs = null; break; } // nobody is waiting on a scheduled run's turn
       ln.needs = 'done';
       playCall(ln, false);
       break;
     case 'attention':
       ln.busy = false;
+      if (ln.scheduled && e.reason === 'idle') break; // only a blocking permission prompt calls for a scheduled run
       ln.needs = e.reason === 'idle' ? 'idle' : 'permission';
       // A permission prompt blocks the session, so it asks again; an idle session asks once
       ln.callsLeft = ln.needs === 'permission' ? 3 : 1;
@@ -897,6 +937,7 @@ function ingest(e, source) {
       break;
     case 'tool': case 'edit': {
       const kind = e.kind || (e.type === 'edit' ? 'edit' : KIND_OF_TOOL(e.tool));
+      if (ln.scheduled && kind !== 'edit') { kick(0.02); break; } // a scheduled run that only looks around stays silent
       ln.queue.push(kind);
       if (ln.queue.length > 6) ln.queue.shift();
       kick(kind === 'edit' ? 0.12 : 0.07);
@@ -919,14 +960,29 @@ function ingest(e, source) {
       bellArp();
       vis.marks.push({ t: wall(), type: 'commit', lane: ln.id });
       break;
-    case 'fail':
-      if (!ln.failing) { ln.failing = true; ln.fails.push({ start: wall(), end: null }); }
+    case 'fail': {
+      // Each check fails and clears on its own: a passing lint doesn't clear failing tests
+      const check = L.checkOf(e);
+      if (!ln.failChecks[check]) {
+        const span = { start: wall(), end: null, check, row: Object.keys(ln.failChecks).length };
+        ln.fails.push(span);
+        ln.failChecks[check] = span;
+        playBroke(ln);
+      }
       updateSour();
       break;
-    case 'pass':
-      if (ln.failing) { ln.failing = false; const f = ln.fails[ln.fails.length - 1]; if (f) f.end = wall(); }
+    }
+    case 'pass': {
+      const check = L.checkOf(e);
+      const span = ln.failChecks[check];
+      if (span) {
+        span.end = wall();
+        delete ln.failChecks[check];
+        playFixed(ln);
+      }
       updateSour();
       break;
+    }
     case 'checklist': {
       const total = Number(e.total) || ln.total || 6;
       const done = e.done != null ? Number(e.done) : Math.min(total, ln.done + 1);
@@ -1046,8 +1102,8 @@ function demoTick() {
       demoSend(d, 'tool', { tool: TOOLS[kind], kind });
       if (kind === 'edit') st.edits += 1;
     }
-    if (!st.failing && st.edits > 2 && Math.random() < 0.005) { demoSend(d, 'fail', { source: 'typecheck' }); st.failing = true; st.fixAt = now + rand(9, 22); }
-    if (st.failing && now > st.fixAt) { demoSend(d, 'pass', { source: 'typecheck' }); st.failing = false; }
+    if (!st.failing && st.edits > 2 && Math.random() < 0.005) { st.check = pick(['test', 'typecheck', 'lint']); demoSend(d, 'fail', { check: st.check }); st.failing = true; st.fixAt = now + rand(9, 22); }
+    if (st.failing && now > st.fixAt) { demoSend(d, 'pass', { check: st.check }); st.failing = false; }
     if (!st.failing && st.edits >= 7 && Math.random() < 0.025) { demoSend(d, 'commit'); st.edits = 0; }
     if (Math.random() < 0.01) { st.step = st.step >= 6 ? 1 : st.step + 1; demoSend(d, 'checklist', { done: st.step, total: 6 }); }
   }
@@ -1106,7 +1162,7 @@ function preview() {
   vis.marks.push({ t: now - 6, type: 'step', lane: 'demo-1' });
   vis.marks.push({ t: now - 3, type: 'call', lane: 'demo-3' });
   const l2 = lanes.get('demo-2');
-  if (l2) l2.fails.push({ start: now - 33, end: now - 19.5 });
+  if (l2) l2.fails.push({ start: now - 33, end: now - 19.5, check: 'typecheck' });
   const l3 = lanes.get('demo-3');
   if (l3) l3.needs = 'permission';
   vis.waits.push({ t: now - 36, n: 1 }, { t: now - 25, n: 2 }, { t: now - 9, n: 1 });
@@ -1126,13 +1182,38 @@ function connect() {
     let d;
     try { d = JSON.parse(msg.data); } catch { return; }
     if (d.type === 'hello') {
-      for (const l of d.lanes || []) ensureLane(l, 'live');
-      if (d.waitingBy) ingest({ type: 'waiting', projects: d.waitingBy }, 'live');
-      renderLanes();
+      if (d.state) restore(d.state);
+      else {
+        for (const l of d.lanes || []) ensureLane(l, 'live');
+        if (d.waitingBy) ingest({ type: 'waiting', projects: d.waitingBy }, 'live');
+        renderLanes();
+      }
       return;
     }
     ingest(d, 'live');
   };
+}
+
+// The bridge's picture of every session (GET /state), so a reload keeps pending calls and broken builds
+function restore(snap) {
+  if (snap.waitingBy) ingest({ type: 'waiting', projects: snap.waitingBy }, 'live');
+  for (const s of snap.lanes || []) {
+    const ln = ensureLane(s, 'live');
+    ln.external = ln.external || !!s.external;
+    ln.scheduled = !!s.scheduled;
+    ln.busy = s.state === 'working';
+    ln.needs = s.state === 'needs_ok' ? 'permission' : s.needsReason === 'idle' ? 'idle' : s.needsReason === 'done' ? 'done' : null;
+    if (ln.needs === 'permission' || ln.needs === 'idle') { ln.callsLeft = ln.needs === 'permission' ? 3 : 2; ln.nextCall = wall() + 3; }
+    for (const [check, since] of Object.entries(s.failing || {})) {
+      if (ln.failChecks[check]) continue;
+      const span = { start: wall() - Math.max(0, Date.now() - since) / 1000, end: null, check, row: Object.keys(ln.failChecks).length };
+      ln.fails.push(span);
+      ln.failChecks[check] = span;
+    }
+    if (s.checklist) { ln.done = s.checklist.done; ln.total = s.checklist.total; }
+  }
+  updateSour();
+  renderLanes();
 }
 
 function setSource(text, live) {
@@ -1196,7 +1277,7 @@ function earState() {
     engine: S.engineId, mood: S.moodKey, moodName: mood().name, key: mood().label, bpm: mood().bpm, chord: S.chord.name,
     lead: S.leadNow, texture: S.texture, volume: S.volume, drumLevel: r2(S.drumLevel), energy: r2(energy()), sour: S.sourOn, waiting: total,
     lanes: [...lanes.values()].filter((l) => !l.ended).map((l) => ({
-      label: l.label, project: l.project, timbre: l.timbre, busy: l.busy, failing: l.failing, needs: l.needs, off: l.off, muted: l.muted, energy: r2(l.energy),
+      label: l.label, project: l.project, timbre: l.timbre, busy: l.busy, failing: Object.keys(l.failChecks), needs: l.needs, off: l.off, muted: l.muted, energy: r2(l.energy),
     })),
   };
 }
@@ -1364,7 +1445,8 @@ function renderLanes() {
       <div class="who"><strong>${esc(l.label)}</strong><span>${esc(l.project)} · ${l.timbre}${l.off ? ' · project off' : ''}</span></div>
       <div class="chips">
         ${l.needs && l.needs !== 'done' ? `<span class="chip call">${NEEDS[l.needs]}</span>` : `<span class="chip ${l.busy ? 'on' : ''}">${l.busy ? 'working' : l.needs === 'done' ? NEEDS.done : 'idle'}</span>`}
-        ${l.failing ? '<span class="chip fail">build failing</span>' : ''}
+        ${Object.values(l.failChecks).map((f) => `<span class="chip fail">${esc(L.checkLabel(f.check))} failing</span>`).join('')}
+        ${l.scheduled ? '<span class="chip">scheduled run</span>' : ''}
         ${l.total ? `<span class="chip">${l.done}/${l.total}</span>` : ''}
         ${l.external ? `<span class="chip">${pulsesLastHour(l)} ${esc(l.what || 'events')} in the last hour</span>` : ''}
         <span class="energy" title="Activity"><i style="width:${Math.round(l.energy * 100)}%"></i></span>
@@ -1517,7 +1599,8 @@ function draw() {
       const end = f.end || now;
       if (end < left) continue;
       const x0 = Math.max(0, X(f.start)), x1 = Math.min(head, X(end));
-      const mid = y + bandH / 2;
+      // Several failures in one lane stack 20px apart, each with its name just above its wave
+      const mid = y + bandH / 2 - 6 + (f.row || 0) * 20;
       g.strokeStyle = colors.fail;
       g.globalAlpha = 0.8;
       g.lineWidth = 1.5;
@@ -1526,7 +1609,7 @@ function draw() {
       g.stroke();
       g.lineWidth = 1;
       g.globalAlpha = 1;
-      if (X(f.start) > 0) { g.fillStyle = colors.fail; g.fillText(f.end ? 'fixed' : 'build failing', X(f.start) + 4, mid - 10); }
+      if (X(f.start) > 0) { g.fillStyle = colors.fail; g.fillText(L.checkLabel(f.check) + (f.end ? ' fixed' : ' failing'), X(f.start) + 4, mid - 9); }
     }
   });
 

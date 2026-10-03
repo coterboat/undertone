@@ -1,15 +1,18 @@
 // undertone: plays your Claude Code sessions as music.
 //
-// This mod sends what the session does (turns, tool calls, edits, commits, failing and
-// passing checks, permission prompts, coter-kit's checklist) to the undertone bridge on
-// 127.0.0.1, which streams it to the page in your browser, along with how many coter-kit
-// questions wait on you in each project. Only event types, tool names, project names and
-// those counts leave the session: never prompt text, file paths or commands.
+// This mod sends what the session does (turns, tool calls, edits, commits, which checks fail and
+// pass, permission prompts, coter-kit's checklist) to the undertone bridge on 127.0.0.1, which
+// streams it to the page in your browser, along with how many coter-kit questions wait on you in
+// each project. Only event types, tool names, check names (test, typecheck, lint, build), project
+// names, counts and a scheduled-run flag leave the session: never prompt text, file paths or commands.
 //
 //   /undertone          start the bridge if it isn't running and open the page
 //   /undertone status   is the bridge up, and is this session sending
 //   /undertone off|on   stop or resume sending this session's events
-//   /undertone stop     stop the bridge, if this session started it
+//   /undertone stop     stop the bridge if this session started it, and stop restarting it
+
+import { analyzeCommand, outcomes } from './commands.js'
+import { countWaiting } from './waiting.js'
 
 const DEFAULT_PORT = 4747
 const CHECKLIST_TOOL = 'mcp__coter-kit__checklist'
@@ -17,24 +20,30 @@ const REMEMBER_TOOL = 'mcp__coter-kit__remember'
 const DOWN_BACKOFF_MS = 15_000
 const HEARTBEAT_MS = 60_000
 const WAITING_EVERY_MS = 120_000
-const WAITING_TTL_MS = 30 * 86_400_000 // coter-kit drops an unanswered question after 30 days
-
-// Commands whose pass or fail is the build's state: tests, typechecks, builds, linters
-const CHECK_CMD = /\b(?:(?:npm|pnpm|yarn|bun)\s+(?:run\s+)?(?:test|build|typecheck|type-check|lint|check)|npx\s+(?:tsc|jest|vitest|eslint|playwright)|tsc|jest|vitest|pytest|mypy|ruff\s+check|dotnet\s+(?:build|test)|cargo\s+(?:build|test|check)|go\s+(?:build|test|vet)|python3?\s+-m\s+(?:pytest|py_compile|mypy|unittest)|make)\b/
-const COMMIT_CMD = /\bgit\b[^|;&]*\bcommit\b/
-const PUSH_CMD = /\bgit\b[^|;&]*\bpush\b/
+// While the bridge is down, events wait (heartbeats don't): at most this many, this long
+const HOLD_MAX = 500
+const HOLD_MS = 5 * 60_000
+// A bridge seen this recently that stops answering is started again, at most once a minute
+const RESTART_IF_SEEN_MS = 30 * 60_000
+const RESTART_EVERY_MS = 60_000
 
 let port = DEFAULT_PORT
 let base = 'http://127.0.0.1:' + DEFAULT_PORT
 let lane = null // { lane, project, label }
 let sending = true
-let queue = []
+let queue = [] // { e, at } — at is stamped by the first flush that tries to send it
 let flushTimer = null
 let downUntil = 0
+let lastHealthy = 0
+let lastRestartTry = 0
+let autoRestart = true
 let bridge = null // the bridge process this session started, if any
 let checksFailing = false
 let brainDir = ''
 let lastWaiting = ''
+let started = false // timers and the command are set up once per module load
+let scheduled = false // this session is a scheduled run: it plays quietly and never calls you
+let promptSeen = false
 
 function kindOf(tool) {
   if (/^(Read|Grep|Glob|LS|NotebookRead)$/.test(tool)) return 'read'
@@ -48,7 +57,7 @@ function kindOf(tool) {
 // mcp__server__tool -> tool, so the page never sees server ids
 const shortTool = (tool) => String(tool || '').split('__').pop().slice(0, 40)
 
-// A worktree under .claude/worktrees/<name> plays as "<project> · <name>"
+// From the path alone: a worktree under .claude/worktrees/<name> plays as "<project> · <name>"
 function laneFor(root, id) {
   const parts = String(root || '').replace(/\\/g, '/').replace(/\/+$/, '').split('/')
   let project = parts[parts.length - 1] || 'session'
@@ -61,25 +70,65 @@ function laneFor(root, id) {
   return { lane: String(id || 'session').slice(0, 8), project, label }
 }
 
-function emit($, type, extra) {
-  if (!lane || !sending) return
-  queue.push({ type, ...lane, ...extra })
-  if (queue.length > 100) queue.splice(0, queue.length - 100)
+// From git, when it answers: any linked worktree (a sibling folder such as ~/GitHub/EO7-sprites
+// too) plays as "<main checkout> · <worktree folder>"
+const leaf = (p) => p.replace(/\/+$/, '').split('/').pop()
+async function gitNames($, root) {
+  try {
+    const r = await $.process.run(['git', 'rev-parse', '--show-toplevel', '--git-common-dir'], { cwd: root, timeoutMs: 3000 })
+    if (r.exitCode !== 0) return null
+    const [top, common] = String(r.stdout || '').trim().split('\n').map((s) => s.trim().replace(/\\/g, '/'))
+    if (!top || !common) return null
+    const commonAbs = /^(\/|[A-Za-z]:\/)/.test(common) ? common : top.replace(/\/+$/, '') + '/' + common
+    const main = commonAbs.replace(/\/+$/, '').replace(/\/\.git$/, '')
+    if (main === commonAbs.replace(/\/+$/, '')) return null // a bare or unusual layout: trust the path
+    const project = leaf(main)
+    return { project, label: main === top.replace(/\/+$/, '') ? project : project + ' · ' + leaf(top) }
+  } catch {
+    return null
+  }
+}
+
+async function laneNow($) {
+  const root = await $.session.root()
+  const fromPath = laneFor(root, await $.session.id())
+  const fromGit = await gitNames($, root)
+  return fromGit ? { ...fromPath, ...fromGit } : fromPath
+}
+
+function enqueue($, e) {
+  queue.push({ e, at: null })
   if (!flushTimer) flushTimer = $.clock.after(120, () => { flushTimer = null; return flush($) })
 }
 
-// Batches go out about every 120 ms; when the bridge is down, events are dropped for 15 s
+function emit($, type, extra) {
+  if (!lane || !sending) return
+  enqueue($, { type, ...lane, ...(scheduled ? { scheduled: true } : {}), ...extra })
+}
+
+// Batches go out about every 120 ms. While the bridge is down they wait (500 events, 5 minutes)
+// and go out in order once it's back; a bridge that was running is started again.
 async function flush($) {
   if (!queue.length) return
+  const now = await $.clock.now()
+  for (const q of queue) if (q.at == null) q.at = now
+  queue = queue.filter((q) => now - q.at <= HOLD_MS)
+  if (queue.length > HOLD_MAX) queue.splice(0, queue.length - HOLD_MAX)
+  if (now < downUntil) return
   const batch = queue
   queue = []
-  const now = await $.clock.now()
-  if (now < downUntil) return
   try {
-    const r = await $.http.fetch(base + '/event', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(batch) })
-    if (!r.ok) downUntil = now + DOWN_BACKOFF_MS
+    const r = await $.http.fetch(base + '/event', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(batch.map((q) => q.e)) })
+    if (!r.ok) throw new Error('bridge answered ' + r.status)
+    lastHealthy = now
+    downUntil = 0
   } catch {
     downUntil = now + DOWN_BACKOFF_MS
+    queue = batch.filter((q) => q.e.type !== 'alive').concat(queue)
+    if (autoRestart && lastHealthy && now - lastHealthy < RESTART_IF_SEEN_MS && now - lastRestartTry >= RESTART_EVERY_MS) {
+      lastRestartTry = now
+      void ensureBridge($)
+    }
   }
 }
 
@@ -104,8 +153,7 @@ async function readText($, path) {
   }
 }
 
-// Open questions per project, read the way coter-kit reads them: every machine's journal,
-// status changes applied in order, unanswered ones dropped after 30 days
+// Every machine's journal rows; countWaiting (hooks/waiting.js) does the counting
 async function readWaiting($) {
   let dir = brainDir
   if (!dir) {
@@ -114,33 +162,18 @@ async function readWaiting($) {
     dir = String(home).replace(/\\/g, '/') + '/.claude/coter-brain'
   }
   const journal = dir.replace(/\/+$/, '') + '/journal'
-  const entries = new Map()
-  const ops = []
+  const rows = []
   for (const device of await listDir($, journal)) {
     if (device.kind !== 'dir') continue
     for (const f of await listDir($, journal + '/' + device.name)) {
       if (!f.name.endsWith('.jsonl')) continue
       for (const line of (await readText($, journal + '/' + device.name + '/' + f.name)).split('\n')) {
         const row = safeJson(line)
-        if (!row) continue
-        if (row.op) ops.push(row)
-        else if (row.id && row.kind) entries.set(row.id, row)
+        if (row) rows.push(row)
       }
     }
   }
-  ops.sort((a, b) => a.at - b.at)
-  for (const op of ops) {
-    const e = entries.get(op.ref)
-    if (e && op.op === 'status') entries.set(op.ref, { ...e, status: op.status, updatedAt: op.at })
-  }
-  const now = await $.clock.now()
-  const by = {}
-  for (const e of entries.values()) {
-    if (e.kind !== 'waiting' || e.status !== 'active' || now - (e.updatedAt || e.at) > WAITING_TTL_MS) continue
-    const p = e.project || 'every project'
-    by[p] = (by[p] || 0) + 1
-  }
-  return by
+  return countWaiting(rows, await $.clock.now())
 }
 
 // Sends the counts when they change (the bridge keeps the newest for pages that connect later)
@@ -155,7 +188,9 @@ async function sendWaiting($, force) {
 async function healthy($) {
   try {
     const r = await $.http.fetch(base + '/health')
-    return r.ok && r.text.includes('"undertone"')
+    const ok = r.ok && r.text.includes('"undertone"')
+    if (ok) lastHealthy = await $.clock.now()
+    return ok
   } catch {
     return false
   }
@@ -205,18 +240,29 @@ export function register(on, options) {
   base = 'http://127.0.0.1:' + port
   brainDir = String((options && options.brainDir) || '').replace(/\\/g, '/')
 
+  // Fires on startup, /resume, /clear, compaction and /branch: the lane is refreshed every time,
+  // the timers and the command are set up once
   on('session.start', async ($, e, next) => {
-    lane = laneFor(await $.session.root(), await $.session.id())
-    try {
-      await $.command.register({ name: 'undertone', description: 'Play this session as music: start the bridge and open the page', argumentHint: '[status|off|on|stop]' })
-    } catch (err) {
-      $.ui.log('undertone: could not add /undertone: ' + (err && err.message ? err.message : err))
+    const now = await laneNow($)
+    if (lane && lane.lane !== now.lane) {
+      if (sending) enqueue($, { type: 'session.end', ...lane, ...(scheduled ? { scheduled: true } : {}) })
+      scheduled = false
+      promptSeen = false
+    }
+    lane = now
+    if (!started) {
+      started = true
+      try {
+        await $.command.register({ name: 'undertone', description: 'Play this session as music: start the bridge and open the page', argumentHint: '[status|off|on|stop]' })
+      } catch (err) {
+        $.ui.log('undertone: could not add /undertone: ' + (err && err.message ? err.message : err))
+      }
+      // A heartbeat, so a session that closes without saying goodbye leaves the page within minutes
+      $.clock.every(HEARTBEAT_MS, () => emit($, 'alive'))
+      $.clock.every(WAITING_EVERY_MS, () => sendWaiting($))
     }
     emit($, 'session.start')
-    // A heartbeat, so a session that closes without saying goodbye leaves the page within minutes
-    $.clock.every(HEARTBEAT_MS, () => emit($, 'alive'))
     $.clock.after(1500, () => sendWaiting($, true))
-    $.clock.every(WAITING_EVERY_MS, () => sendWaiting($))
     return next(e)
   })
 
@@ -227,6 +273,11 @@ export function register(on, options) {
   })
 
   on('prompt.submit', async ($, e, next) => {
+    // A scheduled task's run starts with its <scheduled-task …> prompt. Only the flag leaves.
+    if (!promptSeen) {
+      promptSeen = true
+      if (/^\s*<scheduled-task[\s>]/.test(String(e.text || ''))) scheduled = true
+    }
     emit($, 'prompt')
     return next(e)
   })
@@ -267,11 +318,11 @@ export function register(on, options) {
     if (!result || result.deny) return result
 
     emit($, 'tool', { tool: shortTool(e.tool), kind: kindOf(e.tool) })
+    // Commits, pushes and which checks passed or failed (hooks/commands.js); never the command
     if (e.tool === 'Bash' && typeof e.command === 'string') {
-      const cmd = e.command
-      if (!result.isError && COMMIT_CMD.test(cmd)) emit($, 'commit')
-      if (!result.isError && PUSH_CMD.test(cmd)) emit($, 'push')
-      if (CHECK_CMD.test(cmd)) emit($, result.isError ? 'fail' : 'pass', { source: 'command' })
+      for (const o of outcomes(analyzeCommand(e.command), !result.isError)) {
+        emit($, o.type, o.check ? { check: o.check, source: 'command' } : {})
+      }
     }
     return result
   })
@@ -281,10 +332,10 @@ export function register(on, options) {
     const result = await next(e)
     if (result && result.block) {
       checksFailing = true
-      emit($, 'fail', { source: 'checks' })
+      emit($, 'fail', { check: 'checks', source: 'checks' })
     } else if (checksFailing) {
       checksFailing = false
-      emit($, 'pass', { source: 'checks' })
+      emit($, 'pass', { check: 'checks', source: 'checks' })
     }
     return result
   })
@@ -308,17 +359,20 @@ export function register(on, options) {
       const up = await healthy($)
       return {
         text: 'undertone: bridge ' + (up ? 'running at ' + base : 'not running') +
-          '; this session (' + (lane ? lane.label : '?') + ') is ' + (sending ? 'sending' : 'not sending') + ' events.',
+          '; this session (' + (lane ? lane.label : '?') + ') is ' + (sending ? 'sending' : 'not sending') + ' events' +
+          (scheduled ? ' as a scheduled run' : '') + (autoRestart ? '' : '; restarting the bridge is off') + '.',
       }
     }
     if (arg === 'stop') {
-      if (!bridge) return { text: 'undertone: this session did not start the bridge, so it is left running. Stop it where it was started.' }
+      autoRestart = false
+      if (!bridge) return { text: 'undertone: this session did not start the bridge, so it is left running. This session won\'t restart it any more.' }
       const child = bridge
       bridge = null
       try { await child.return(undefined) } catch {}
-      return { text: 'undertone: bridge stopped.' }
+      return { text: 'undertone: bridge stopped, and this session won\'t restart it.' }
     }
 
+    autoRestart = true
     if (!(await ensureBridge($))) {
       return { text: 'undertone: the bridge did not start. Run `npm start` in ' + $.plugin.root + ' to see why.' }
     }
