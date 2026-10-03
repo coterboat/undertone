@@ -8,7 +8,7 @@ window.UndertoneEngines.add({
   local: false,
   create() {
     const { hz, makeFx, makeTexture, makeDrone, makeSour } = window.UndertoneEngines.kit
-    let T, fx, pad, padFilter, padChorus, bass, bell, drumBus, kick, snare, hat, tom, texture, drone, sour
+    let T, fx, pad, padFilter, padChorus, bass, bassDuck, bell, drumBus, kick, snare, hat, tom, texture, drone, sour
     const voices = {}
     const nodes = []
     const keep = (...n) => (nodes.push(...n), n[0])
@@ -34,11 +34,13 @@ window.UndertoneEngines.add({
         v.connect(lp)
         fx.send(lp, { dry: 0.9, rv: 0.25, ec: 0.4 })
       } else if (timbre === 'mallet') {
+        // A rounder onset than a 1 ms strike: every read and grep plays one, and with a few busy
+        // sessions they were the ticks between the drums
         v = new Tone.PolySynth(Tone.FMSynth, {
-          harmonicity: 4, modulationIndex: 2.2,
+          harmonicity: 4, modulationIndex: 1.8,
           oscillator: { type: 'sine' }, modulation: { type: 'sine' },
-          envelope: { attack: 0.001, decay: 0.7, sustain: 0, release: 0.7 },
-          modulationEnvelope: { attack: 0.001, decay: 0.15, sustain: 0, release: 0.2 },
+          envelope: { attack: 0.004, decay: 0.7, sustain: 0, release: 0.7 },
+          modulationEnvelope: { attack: 0.003, decay: 0.15, sustain: 0, release: 0.2 },
         })
         v.volume.value = -5
         fx.send(v, { dry: 1, rv: 0.4, ec: 0.15 })
@@ -82,7 +84,10 @@ window.UndertoneEngines.add({
           filterEnvelope: { attack: 0.01, decay: 0.3, sustain: 0.3, release: 0.8, baseFrequency: 110, octaves: 2.2 },
         }))
         bass.volume.value = -20
-        send(bass, { dry: 1, rv: 0.04 })
+        // The kick ducks the bass for a moment, so its attack doesn't bloom into the kick's tail
+        bassDuck = keep(new Tone.Gain(1))
+        bass.connect(bassDuck)
+        send(bassDuck, { dry: 1, rv: 0.04 })
 
         bell = keep(new Tone.PolySynth(Tone.FMSynth, {
           harmonicity: 5.07, modulationIndex: 8,
@@ -97,14 +102,17 @@ window.UndertoneEngines.add({
         const drumTone = keep(new Tone.Filter(7000, 'lowpass'))
         drumBus.chain(drumTone, io.out)
         drumBus.connect(keep(new Tone.Gain(0.12)).connect(fx.verbIn))
-        kick = keep(new Tone.MembraneSynth({ pitchDecay: 0.045, octaves: 5, envelope: { attack: 0.001, decay: 0.42, sustain: 0, release: 0.1 } }))
+        // Four octaves of sweep and a 3 ms attack: a thump, not a click
+        kick = keep(new Tone.MembraneSynth({ pitchDecay: 0.05, octaves: 4, envelope: { attack: 0.003, decay: 0.42, sustain: 0, release: 0.1 } }))
         kick.volume.value = -9
         kick.connect(drumBus)
-        const snareBand = keep(new Tone.Filter({ frequency: 1700, type: 'bandpass', Q: 0.8 }))
-        snare = keep(new Tone.NoiseSynth({ noise: { type: 'pink' }, envelope: { attack: 0.002, decay: 0.17, sustain: 0 } }))
-        // Measured 30 dB under the kick on its own; both Gemini reads called the drums buried
-        snare.volume.value = -3
-        snare.chain(snareBand, drumBus)
+        // Measured 30 dB under the kick on its own; both Gemini reads called the drums buried, so it
+        // went up. Then it snapped: centred lower, the 2-3 kHz poke shaved, a softer attack, 1.5 dB down
+        const snareBand = keep(new Tone.Filter({ frequency: 1300, type: 'bandpass', Q: 0.7 }))
+        const snareSoft = keep(new Tone.Filter({ frequency: 3200, type: 'lowpass', rolloff: -12 }))
+        snare = keep(new Tone.NoiseSynth({ noise: { type: 'pink' }, envelope: { attack: 0.006, decay: 0.17, sustain: 0 } }))
+        snare.volume.value = -4.5
+        snare.chain(snareBand, snareSoft, drumBus)
         const hatHp = keep(new Tone.Filter(7500, 'highpass'))
         hat = keep(new Tone.NoiseSynth({ noise: { type: 'white' }, envelope: { attack: 0.001, decay: 0.035, sustain: 0 } }))
         hat.volume.value = -18
@@ -127,10 +135,20 @@ window.UndertoneEngines.add({
       bass(m, time, dur, vel) { bass.triggerAttackRelease(hz(m), dur, time, vel) },
       voice(timbre, m, time, dur, vel) { voices[timbre].triggerAttackRelease(hz(m), dur, time, vel) },
       drum(kind, time, vel, m) {
-        if (kind === 'kick') kick.triggerAttackRelease('C1', '8n', time, vel)
-        else if (kind === 'tom') tom.triggerAttackRelease(hz(m || 38), '4n', time, vel)
-        else if (kind === 'hat') hat.triggerAttackRelease('32n', time, vel)
-        else snare.triggerAttackRelease('32n', time, kind === 'rim' ? vel * 0.5 : vel)
+        // The kick holds the grid; hats and snare sit a few ms behind it and never hit the same
+        // twice, so the groove breathes instead of ticking
+        const late = (lo, hi) => time + (lo + Math.random() * (hi - lo)) / 1000
+        const drift = (v, d) => v * (1 - Math.random() * d)
+        if (kind === 'kick') {
+          kick.triggerAttackRelease('C1', '8n', time, vel)
+          // Glides from wherever the gain is (a hold-and-ramp jumped and clicked): down in ~10 ms,
+          // back over ~200 ms
+          const g = bassDuck.gain
+          g.setTargetAtTime(0.45, time, 0.004)
+          g.setTargetAtTime(1, time + 0.03, 0.06)
+        } else if (kind === 'tom') tom.triggerAttackRelease(hz(m || 38), '4n', time, vel)
+        else if (kind === 'hat') hat.triggerAttackRelease('32n', late(0, 7), drift(vel, 0.25))
+        else snare.triggerAttackRelease('32n', late(3, 10), drift(kind === 'rim' ? vel * 0.5 : vel, 0.12))
       },
       bell(m, time, dur, vel) { bell.triggerAttackRelease(hz(m), dur, time, vel) },
       sour(state, m, time, to) { sour[state](m, time, to) },

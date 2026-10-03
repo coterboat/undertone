@@ -1,0 +1,36 @@
+{
+  "sensitive": [
+    {
+      "glob": "bridge/server.mjs",
+      "why": "Local server: POST /event, /ear, /shutdown, ntfy pings, writes logs and clips"
+    },
+    {
+      "glob": "hooks/**",
+      "why": "Plugin hooks that decide what leaves each session; also read brain"
+    },
+    {
+      "glob": ".claude-plugin/**",
+      "why": "Plugin manifest and marketplace listing other installs depend on"
+    },
+    {
+      "glob": "ear/gemini.mjs",
+      "why": "Sends audio clips to Google using a Gemini API key"
+    },
+    {
+      "glob": "bridge/timesheets.mjs",
+      "why": "Writes summaries into the shared brain repo that syncs to GitHub"
+    },
+    {
+      "glob": "bridge/retention.mjs",
+      "why": "Deletes old ear clips and daily event logs"
+    },
+    {
+      "glob": "bridge/launch.mjs",
+      "why": "Detached background auto-start of the bridge outside any session"
+    },
+    {
+      "glob": "bridge/sources.mjs",
+      "why": "Spawns and restarts outside source child processes (az CLI) on its own"
+    }
+  ]
+}
