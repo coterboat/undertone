@@ -8,6 +8,9 @@
 //   node sources/azure-metrics.mjs               every source in ~/.config/undertone/sources.json
 //   node sources/azure-metrics.mjs --mock NAME   made-up traffic for NAME, to hear it before it's wired
 //
+// The bridge starts this itself when sources.json exists (bridge/sources.mjs), so you rarely run it
+// by hand. Only one copy runs at a time: it holds ~/.undertone/sources.pid while it does.
+//
 // ~/.config/undertone/sources.json, one entry per source:
 //   { "ourplace": { "label": "ourPlace prod", "metrics": [
 //       { "resource": "<resource id>", "metric": "Requests", "as": "pulse", "what": "chats" },
@@ -28,7 +31,8 @@ import { execFile } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 
 const BRIDGE = 'http://127.0.0.1:' + (process.env.UNDERTONE_PORT || 4747)
-const CONFIG = path.join(os.homedir(), '.config', 'undertone', 'sources.json')
+const CONFIG = process.env.UNDERTONE_SOURCES_CONFIG || path.join(os.homedir(), '.config', 'undertone', 'sources.json')
+const LOCK = path.join(process.env.UNDERTONE_HOME || path.join(os.homedir(), '.undertone'), 'sources.pid')
 const SETTLE_MS = 3 * 60_000
 
 async function postToBridge(events) {
@@ -39,9 +43,21 @@ async function postToBridge(events) {
 
 export const laneOf = (name, cfg) => ({ lane: 'src-' + name, project: name, label: cfg.label || name, origin: 'azure' })
 
+// How to run `az` here. On Windows it's az.cmd, which Node can only start through cmd.exe, and
+// cmd.exe reads its line unquoted: so every argument must be plain (resource ids, metric names,
+// ISO times), never a space, quote, &, | or anything else cmd.exe would act on.
+const PLAIN = /^[A-Za-z0-9/_.:+,=-]+$/
+export function azInvocation(args, platform = process.platform) {
+  const bad = args.find((a) => !PLAIN.test(String(a)))
+  if (bad !== undefined) throw new Error('refusing to pass ' + JSON.stringify(String(bad).slice(0, 40)) + ' to az: only letters, digits and / _ . : + , = -')
+  return platform === 'win32' ? { file: 'az.cmd', args, shell: true } : { file: 'az', args, shell: false }
+}
+
 function runAz(args) {
   return new Promise((resolve, reject) => {
-    execFile('az', args, { timeout: 45_000, maxBuffer: 8 * 1024 * 1024 }, (err, stdout, stderr) => {
+    let run
+    try { run = azInvocation(args) } catch (err) { return reject(err) }
+    execFile(run.file, run.args, { timeout: 45_000, maxBuffer: 8 * 1024 * 1024, shell: run.shell, windowsHide: true }, (err, stdout, stderr) => {
       if (err) return reject(new Error((stderr || err.message).trim().split('\n').pop()))
       try { resolve(JSON.parse(stdout)) } catch { reject(new Error('az returned something that is not JSON')) }
     })
@@ -137,6 +153,28 @@ async function runMock(name) {
   console.log('undertone: mock traffic for ' + name + ' (ctrl-c to stop)')
 }
 
+// One copy at a time: the pid of a live holder, or null once this process holds the lock (and lets
+// it go on exit). The holder touches the lock every minute; one left by a process that's gone, or
+// untouched for three minutes, is taken over. (Windows kills the bridge's child outright when the
+// bridge dies, so no exit handler runs, and pids come back around: the touch is what tells.)
+const LOCK_STALE_MS = 3 * 60_000
+function takeLock() {
+  try {
+    const pid = Number(fs.readFileSync(LOCK, 'utf8').trim())
+    const fresh = Date.now() - fs.statSync(LOCK).mtimeMs < LOCK_STALE_MS
+    if (pid && pid !== process.pid && fresh) {
+      try { process.kill(pid, 0); return pid } catch (err) { if (err.code === 'EPERM') return pid }
+    }
+  } catch {}
+  fs.mkdirSync(path.dirname(LOCK), { recursive: true })
+  fs.writeFileSync(LOCK, String(process.pid))
+  setInterval(() => { try { const t = new Date(); fs.utimesSync(LOCK, t, t) } catch {} }, 60_000).unref()
+  process.on('exit', () => {
+    try { if (Number(fs.readFileSync(LOCK, 'utf8').trim()) === process.pid) fs.unlinkSync(LOCK) } catch {}
+  })
+  return null
+}
+
 if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) {
   const mock = process.argv.indexOf('--mock')
   if (mock >= 0) {
@@ -148,6 +186,19 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.a
       console.error('undertone: no sources yet. Describe them in ' + CONFIG + ' (see the top of this file), or try --mock ourplace')
       process.exit(1)
     }
+    const holder = takeLock()
+    if (holder) {
+      console.log('undertone: sources already running (pid ' + holder + '); leaving them to it')
+      process.exit(0)
+    }
+    // Started by the bridge: go when it goes (its end of the stdin pipe closes, however it died)
+    if (process.env.UNDERTONE_SOURCES_CHILD === '1') {
+      process.stdin.on('end', () => process.exit(0))
+      process.stdin.on('close', () => process.exit(0))
+      process.stdin.resume()
+    }
+    process.on('SIGINT', () => process.exit(0))
+    process.on('SIGTERM', () => process.exit(0))
     for (const [name, cfg] of Object.entries(config)) runSource(name, cfg)
   }
 }

@@ -7,7 +7,7 @@ import { countWaiting } from '../../hooks/waiting.js'
 import { promptFor } from '../../ear/gemini.mjs'
 import { findSclang } from '../../bridge/sclang.mjs'
 import { prune } from '../../bridge/retention.mjs'
-import { eventsFor, makeSource } from '../../sources/azure-metrics.mjs'
+import { eventsFor, makeSource, azInvocation } from '../../sources/azure-metrics.mjs'
 
 const NOW = Date.UTC(2026, 9, 3, 12)
 const DAY = 86_400_000
@@ -83,6 +83,15 @@ test("Azure errors become a named prod-errors check on an outside source's lane,
   assert.deepEqual(eventsFor(lane, m, [minute(3.5, 0)], memo, NOW + 60_000), [{ type: 'pass', ...lane, check: 'prod-errors:Http5xx' }])
   const pulses = eventsFor(lane, { metric: 'Requests', as: 'pulse', what: 'chats' }, [minute(4, 2), minute(3.5, 3)], {}, NOW)
   assert.deepEqual(pulses, [{ type: 'pulse', ...lane, count: 5, what: 'chats', kind: 'chime' }])
+})
+
+test('az runs through cmd.exe on Windows (it is az.cmd there) and only with plain arguments', () => {
+  const id = '/subscriptions/018bee08-f08e/resourceGroups/prod/providers/Microsoft.Web/sites/JoinOurPlace'
+  const args = ['monitor', 'metrics', 'list', '--resource', id, '--metric', 'Http5xx', '--start-time', '2026-10-03T18:00:00.000Z', '-o', 'json']
+  assert.deepEqual(azInvocation(args, 'win32'), { file: 'az.cmd', args, shell: true })
+  assert.deepEqual(azInvocation(args, 'darwin'), { file: 'az', args, shell: false })
+  for (const bad of ['two words', 'Requests&calc', '"quoted"', 'a|b', '%PATH%', '^x', 'a>b'])
+    assert.throws(() => azInvocation(['--metric', bad], 'win32'), /refusing/, bad)
 })
 
 test('a slow az call never lets two ticks run at once, so no minute plays twice', async () => {

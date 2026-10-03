@@ -4,6 +4,8 @@ Your Claude Code sessions, played as music, and a way for them to tell you what 
 
 Claude Code is the only coding tool it hears. Outside sources (a production site, a bot) can post events to it; Codex or Grok sessions would need sources of their own.
 
+What's built, what's next and what waits on purpose: [docs/roadmap.md](docs/roadmap.md).
+
 ## Quick start
 
 ```bash
@@ -94,9 +96,9 @@ Only Claude Code sessions the bridge has heard start (or heartbeat) can ping, ne
 
 ## Sources beyond Claude
 
-Anything can post events to the bridge. An outside source marks its events with `origin` (and its lane id starts with `src-`), which gives it a lane of its own that colors the music but never leads it, never calls you and never pings your phone: a `pulse` event (`count` things happened) plays that many soft high notes, and `fail` / `pass` with a `check` hold and release the sour note.
+Anything can post events to the bridge. An outside source marks its events with `origin` (and its lane id starts with `src-`), which gives it a lane of its own that colors the music but never leads it, never calls you and never pings your phone: a `pulse` event (`count` things happened) plays that many soft notes (high chimes, or another register with `kind`), and `fail` / `pass` with a `check` hold and release the sour note.
 
-`sources/azure-metrics.mjs` turns Azure Monitor metrics into a source: counts per minute (requests, model calls, errors), never logs or traces, so nothing a user typed can come through. Production errors fail as check `prod-errors:<metric>`. Describe sources in `~/.config/undertone/sources.json` (format at the top of the file), log in with `az login`, then run `npm run sources`. `npm run sources:mock` plays made-up chatbot traffic, to hear it before anything is wired. Azure publishes each minute's numbers late, so the lane trails real time by about three minutes.
+`sources/azure-metrics.mjs` turns Azure Monitor metrics into a source: counts per minute (requests, model calls, errors), never logs or traces, so nothing a user typed can come through. Production errors fail as check `prod-errors:<metric>`. Describe sources in `~/.config/undertone/sources.json` (format at the top of the file) and log in with `az login`; the bridge runs them itself while that file describes any, restarts them when you change it, and stops them with it, so `npm start` is the only window. `/health` says under `sources` whether they're running and their last line of output. Give each metric a `kind` to tell them apart by ear (ourPlace plays chats as high `chime`s and site requests as low `read` notes); the lane's chip counts each one. `npm run sources` runs them by hand instead (only one copy runs at a time), and `npm run sources:mock` plays made-up chatbot traffic, to hear it before anything is wired. On Windows `az` is `az.cmd`, which runs through `cmd.exe`, so the source refuses any argument that isn't plain (letters, digits, `/ _ . : + , = -`). Azure publishes each minute's numbers late, so the lane trails real time by about three minutes.
 
 ## State
 
@@ -145,6 +147,7 @@ coter-kit's brain (open questions) ───────────────
 | `sc/undertone.scd` | SuperCollider's synths, effects and OSC handlers. |
 | `ear/analyze.mjs`, `ear/gemini.mjs` | The ears: clip analysis and spectrograms, and Gemini's critique. |
 | `sources/azure-metrics.mjs` | An outside source: Azure Monitor metrics as a lane. |
+| `bridge/sources.mjs` | Runs the outside sources as the bridge's child while `sources.json` describes any. |
 | `tests/undertone.test.ts` | Mod tests: `claude plugin test .` |
 | `tests/unit/`, `tests/bridge/` | The pure modules, and the bridge run for real: `npm test` |
 
@@ -197,4 +200,5 @@ The bridge reads these from its environment:
 | `UNDERTONE_EAR_DAYS`, `UNDERTONE_LOG_DAYS` | Delete clips and logs older than this (default 0: keep) |
 | `UNDERTONE_NTFY_TOKEN` | An ntfy access token |
 | `UNDERTONE_SCLANG` | Where SuperCollider's `sclang` is |
+| `UNDERTONE_SOURCES`, `UNDERTONE_SOURCES_CONFIG` | `0` stops the bridge running outside sources; where `sources.json` is |
 | `GEMINI_API_KEY`, `UNDERTONE_GEMINI_MODEL`, `UNDERTONE_GEMINI_NOTE` | Gemini's key (or `~/.config/undertone/gemini.key`), model, and whether notes go too |

@@ -843,7 +843,7 @@ function ensureLane(e, source) {
       done: 0, total: 0, idx: null, pool: null, ended: false, last: wall(), lastWork: wall(),
       needs: null, callsLeft: 0, nextCall: 0, fails: [],
       // An outside source (a production site, a bot) colours the music but never leads it
-      external: L.isExternal(e), scheduled: !!e.scheduled, pulses: [], what: '',
+      external: L.isExternal(e), scheduled: !!e.scheduled, pulses: [],
     };
     lanes.set(id, ln);
     ln.pool = poolFor(mood(), S.chord, ln.timbre);
@@ -949,8 +949,8 @@ function ingest(e, source) {
       for (let i = 0; i < n; i++) ln.queue.push(e.kind || 'chime');
       if (ln.queue.length > 8) ln.queue.splice(0, ln.queue.length - 8);
       kick(0.04 * n);
-      ln.pulses.push({ t: wall(), n: Math.max(1, Number(e.count) || 1) });
-      if (e.what) ln.what = String(e.what);
+      ln.pulses = ln.pulses.filter((p) => wall() - p.t < 3600);
+      ln.pulses.push({ t: wall(), n: Math.max(1, Number(e.count) || 1), what: String(e.what || 'events') });
       break;
     }
     case 'commit': case 'push':
@@ -1434,7 +1434,12 @@ function renderLanesSoon() {
 }
 
 const NEEDS = { permission: 'needs your OK', idle: 'waiting for you', done: 'your move' };
-const pulsesLastHour = (l) => l.pulses.filter((p) => wall() - p.t < 3600).reduce((a, p) => a + p.n, 0);
+// Each metric counted on its own: "5 chats · 8 requests in the last hour"
+function pulsesLastHour(l) {
+  const by = new Map();
+  for (const p of l.pulses) if (wall() - p.t < 3600) by.set(p.what, (by.get(p.what) || 0) + p.n);
+  return by.size ? [...by].map(([what, n]) => n + ' ' + what).join(' · ') : 'nothing';
+}
 
 function renderLanes() {
   const items = [...lanes.values()].filter((l) => !l.ended);
@@ -1448,7 +1453,7 @@ function renderLanes() {
         ${Object.values(l.failChecks).map((f) => `<span class="chip fail">${esc(L.checkLabel(f.check))} failing</span>`).join('')}
         ${l.scheduled ? '<span class="chip">scheduled run</span>' : ''}
         ${l.total ? `<span class="chip">${l.done}/${l.total}</span>` : ''}
-        ${l.external ? `<span class="chip">${pulsesLastHour(l)} ${esc(l.what || 'events')} in the last hour</span>` : ''}
+        ${l.external ? `<span class="chip">${esc(pulsesLastHour(l))} in the last hour</span>` : ''}
         <span class="energy" title="Activity"><i style="width:${Math.round(l.energy * 100)}%"></i></span>
       </div>
       <button class="mute" type="button" data-mute="${esc(l.id)}" aria-pressed="${l.muted}">${l.muted ? 'Muted' : 'Mute'}</button>

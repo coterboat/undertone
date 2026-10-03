@@ -4,7 +4,7 @@
 //   GET  /events          server-sent events: a hello with the current state, then every event
 //   GET  /state           every session: working, needs your OK, your move or idle; what's failing
 //   POST /event           one event or an array of them, as JSON (the mod and outside sources post here)
-//   GET  /health          { ok, name, lanes, listeners, waitingBy, notify, sc }
+//   GET  /health          { ok, name, lanes, listeners, waitingBy, notify, sc, sources }
 //   POST /sc/start, /sc   start SuperCollider; notes for it, relayed to sclang over OSC
 //   POST /ear             a reaction or snapshot from the page, saved with its analysis (see ear/)
 //   POST /notify/test     a test ping to your phone (ntfy; ~/.config/undertone/ntfy.json)
@@ -13,6 +13,7 @@
 // can't reach it by DNS rebinding), and refuses posts from any other origin.
 // Every event goes to ~/.undertone/log/<date>.jsonl; on start, today's and yesterday's logs are
 // replayed so the state survives a restart. A session that waits on you pings your phone.
+// Outside sources described in ~/.config/undertone/sources.json run as its child (bridge/sources.mjs).
 // No dependencies: `node bridge/server.mjs [port]`.
 
 import http from 'node:http'
@@ -27,6 +28,7 @@ import { critique, geminiKey } from '../ear/gemini.mjs'
 import { emptyState, reduce, sweep, snapshot, LANE_TTL_MS, IDLE_MS } from '../lib/lanes.mjs'
 import { findSclang } from './sclang.mjs'
 import { prune } from './retention.mjs'
+import { superviseSources } from './sources.mjs'
 
 const PORT = Number(process.argv[2] || process.env.UNDERTONE_PORT || 4747)
 const HOST = '127.0.0.1'
@@ -404,10 +406,14 @@ function stopSc() {
     proc.once('exit', () => { clearTimeout(t); resolve() })
   })
 }
-const shutdown = () => stopSc().then(() => process.exit(0))
+// Outside sources, run as a child while sources.json describes any (UNDERTONE_SOURCES=0: never)
+const SOURCES_CONFIG = process.env.UNDERTONE_SOURCES_CONFIG || path.join(os.homedir(), '.config', 'undertone', 'sources.json')
+let sources = null
+
+const shutdown = () => Promise.all([stopSc(), sources?.stop()]).then(() => process.exit(0))
 process.on('SIGINT', shutdown)
 process.on('SIGTERM', shutdown)
-process.on('exit', () => { if (sc.proc) sc.proc.kill() })
+process.on('exit', () => { if (sc.proc) sc.proc.kill(); sources?.kill() })
 
 // ---------------------------------------------------------------- ears
 
@@ -595,6 +601,7 @@ const server = http.createServer((req, res) => {
       ok: true, name: 'undertone', lanes: Object.keys(state.lanes).length, listeners: listeners.size, waitingBy: state.waitingBy,
       notify: { configured: n.configured, ok: n.ok, reason: n.reason, sent: phone.sent, dropped: phone.dropped },
       sc: { installed: !!SCLANG, running: !!sc.proc, ready: sc.ready },
+      sources: sources ? sources.status() : { off: true },
     }))
     return
   }
@@ -621,5 +628,8 @@ server.listen(PORT, HOST, () => {
   replay()
   pruneOld()
   setInterval(pruneOld, 86_400_000).unref()
+  if (process.env.UNDERTONE_SOURCES !== '0') {
+    sources = superviseSources({ script: path.join(ROOT, 'sources', 'azure-metrics.mjs'), config: SOURCES_CONFIG, port: PORT })
+  }
   console.log('undertone bridge on http://' + HOST + ':' + PORT)
 })

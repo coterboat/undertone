@@ -52,7 +52,7 @@ function raw(port, method, p, { host, headers = {}, body } = {}) {
 async function bridge({ home = tmpHome(), env = {} } = {}) {
   const port = await freePort()
   const child = spawn(process.execPath, [path.join(ROOT, 'bridge', 'server.mjs'), String(port)], {
-    env: { ...process.env, HOME: home, UNDERTONE_HOME: path.join(home, '.undertone'), UNDERTONE_SC_REPLY_PORT: '0', UNDERTONE_SCLANG: path.join(home, 'no-sclang'), GEMINI_API_KEY: '', UNDERTONE_NTFY_TOKEN: '', ...env },
+    env: { ...process.env, HOME: home, USERPROFILE: home, UNDERTONE_HOME: path.join(home, '.undertone'), UNDERTONE_SOURCES_CONFIG: path.join(home, '.config', 'undertone', 'sources.json'), UNDERTONE_SC_REPLY_PORT: '0', UNDERTONE_SCLANG: path.join(home, 'no-sclang'), GEMINI_API_KEY: '', UNDERTONE_NTFY_TOKEN: '', ...env },
     stdio: 'ignore',
   })
   const url = 'http://127.0.0.1:' + port
@@ -176,7 +176,7 @@ test('phone pings refuse an unsafe setup and say why', async () => {
     [base, 0o644, /chmod 600/],
     [{ ...base, enabled: false }, 0o600, /turned off/],
     [{ ...base, topic: 'short' }, 0o600, /guessed/],
-  ]
+  ].filter(([, mode]) => process.platform !== 'win32' || mode === 0o600) // Windows has no chmod; the bridge skips that check there
   for (const [i, [cfg, mode, reason]] of cases.entries()) {
     writeNtfy(home, cfg, mode)
     await b.post([{ type: 'session.start', ...lane('unsafe0' + i) }, { type: 'attention', reason: 'permission', ...lane('unsafe0' + i) }])
