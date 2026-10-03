@@ -73,7 +73,7 @@ h1 {
   margin: 0;
   font-family: var(--font-display);
   font-weight: 800;
-  font-size: clamp(44px, 8vw, 84px);
+  font-size: clamp(44px, 6.4vw, 72px);
   line-height: 0.9;
   letter-spacing: -0.045em;
   font-variation-settings: "opsz" 96;
@@ -99,43 +99,60 @@ h1 .under { color: var(--muted); font-weight: 400; }
 .readout dd { margin: 0; font: 500 15px/1.3 var(--font-mono); font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 16ch; }
 #src.live { color: var(--pass); }
 
-/* engine switch */
+/* engine switch: a segmented control, the chosen engine's sound on the line below */
 .engines { display: grid; gap: 8px; }
-.engine-row { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
-@media (max-width: 860px) { .engine-row { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.engine-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 18px; }
+.engine-row { display: inline-flex; gap: 2px; padding: 3px; border: 1px solid var(--line); border-radius: 999px; background: var(--panel); }
 .engine {
-  display: grid; gap: 4px; text-align: left; min-width: 0;
-  padding: 12px 14px; border-radius: 12px; cursor: pointer;
-  border: 1px solid var(--line); background: var(--panel);
-  transition: border-color .12s ease, background .12s ease;
+  display: inline-flex; align-items: baseline; gap: 6px;
+  padding: 7px 15px; border: 0; border-radius: 999px; cursor: pointer;
+  background: transparent; color: var(--muted); font-weight: 600; font-size: 14px; white-space: nowrap;
+  transition: background .15s ease, color .15s ease;
 }
-.engine:hover { border-color: var(--muted); }
-.engine[aria-checked="true"] { border-color: var(--accent); background: color-mix(in oklab, var(--accent) 10%, var(--panel)); }
-.engine:disabled { cursor: not-allowed; opacity: .55; }
-.engine b { font-weight: 600; font-size: 15px; display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
-.engine b small { font: 500 10px/1 var(--font-mono); text-transform: uppercase; letter-spacing: .1em; color: var(--muted); }
-.engine span { font-size: 12.5px; line-height: 1.4; color: var(--muted); }
-.engine-status { margin: 0; min-height: 1.4em; font: 12.5px/1.4 var(--font-mono); color: var(--muted); }
-.ears { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; font-size: 13px; color: var(--muted); }
+.engine:hover { color: var(--fg); }
+.engine[aria-checked="true"] { color: var(--fg); background: color-mix(in oklab, var(--accent) 22%, var(--panel)); box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--accent) 55%, transparent); }
+.engine:disabled { cursor: not-allowed; opacity: .5; }
+.engine:disabled:hover { color: var(--muted); }
+.engine small { font: 500 9.5px/1 var(--font-mono); text-transform: uppercase; letter-spacing: .1em; }
+@media (max-width: 460px) {
+  .engine-row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); width: 100%; border-radius: 14px; }
+  .engine { justify-content: center; border-radius: 11px; }
+}
+.engine-status { margin: 0 2px; min-height: 1.4em; font-size: 13px; line-height: 1.4; color: var(--muted); }
+.engine-status.busy { font-family: var(--font-mono); font-size: 12.5px; }
+.ears { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 8px; font-size: 13px; color: var(--muted); }
 .ear { border: 1px solid var(--line); background: var(--panel); border-radius: 999px; padding: 6px 13px; cursor: pointer; font-size: 13px; color: var(--fg); transition: border-color .12s ease; }
 .ear:hover { border-color: var(--muted); }
 .ear.love { color: var(--pass); }
 .ear.grates { color: var(--fail); }
-.ear-status { font: 12px/1.4 var(--font-mono); color: var(--muted); overflow-wrap: anywhere; min-width: 0; }
+.ear-status { margin: 0 2px; font: 12px/1.4 var(--font-mono); color: var(--muted); overflow-wrap: anywhere; min-width: 0; }
+.ear-status:empty { display: none; }
 .engine-status.err { color: var(--fail); }
 
-/* score */
+/* score: it grows with the lanes (--rows, set by the page) so none gets squeezed */
 .score { position: relative; }
 #score {
   display: block; width: 100%;
-  height: clamp(250px, 36vw, 380px);
+  height: max(clamp(250px, 36vw, 380px), calc(var(--rows, 3) * 46px + 68px));
   border-radius: 16px;
   border: 1px solid var(--line);
   background: var(--canvas);
+  transition: height .3s ease;
+}
+.tip {
+  position: absolute; z-index: 2; pointer-events: none; max-width: min(320px, 80vw);
+  padding: 6px 9px; border-radius: 8px; border: 1px solid var(--line);
+  background: var(--panel); color: var(--fg); box-shadow: 0 6px 20px rgb(0 0 0 / .25);
+  font: 12px/1.4 var(--font-mono); white-space: pre-line;
 }
 .legend { display: flex; flex-wrap: wrap; gap: 6px 18px; margin: 10px 2px 0; padding: 0; list-style: none; font: 12px/1.4 var(--font-mono); color: var(--muted); }
 .legend li { display: inline-flex; align-items: center; gap: 7px; }
-.legend i { display: inline-block; width: 14px; height: 4px; border-radius: 2px; }
+.legend svg { width: 22px; height: 12px; flex: none; overflow: visible; }
+.legend .l1 { fill: var(--lane1); } .legend .l2 { fill: var(--lane2); } .legend .l3 { fill: var(--lane3); }
+.legend .gold { fill: var(--gold); } .legend .gold-line { stroke: var(--gold); stroke-width: 1.5; }
+.legend .fail { fill: none; stroke: var(--fail); stroke-width: 1.5; }
+.legend .call { fill: none; stroke: var(--call); stroke-width: 1.8; }
+.legend .drone { fill: var(--drone); opacity: .6; }
 
 /* desk */
 .desk { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; align-items: start; }
@@ -156,7 +173,13 @@ h2 { margin: 0; font: 500 11px/1.2 var(--font-mono); text-transform: uppercase; 
 .lead { border: 1px solid var(--line); background: transparent; border-radius: 999px; padding: 4px 10px; font-size: 12.5px; cursor: pointer; color: var(--muted); white-space: nowrap; }
 .lead[aria-pressed="true"] { color: var(--accent-ink); background: var(--accent); border-color: var(--accent); }
 .leadrow { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); }
-@media (max-width: 460px) { .proj { grid-template-columns: auto minmax(0, 1fr) auto; } .proj select { grid-column: 2 / -1; max-width: none; } }
+@media (max-width: 460px) {
+  .proj { grid-template-columns: auto minmax(0, 1fr) auto; grid-template-areas: "on name lead" ". mood mood"; row-gap: 8px; }
+  .proj input[type="checkbox"] { grid-area: on; }
+  .proj .pname { grid-area: name; }
+  .proj .lead { grid-area: lead; }
+  .proj select { grid-area: mood; max-width: none; }
+}
 
 /* lanes */
 .lanes ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
@@ -168,7 +191,9 @@ h2 { margin: 0; font: 500 11px/1.2 var(--font-mono); text-transform: uppercase; 
 .lane .who span { font: 12px/1.3 var(--font-mono); color: var(--muted); }
 .lane .chips { grid-column: 2; display: flex; flex-wrap: wrap; gap: 5px; align-items: center; }
 .chip { font: 500 11px/1 var(--font-mono); padding: 4px 7px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); }
-.chip.on { color: var(--c); border-color: color-mix(in oklab, var(--c) 50%, transparent); }
+.chip.on { color: var(--c); border-color: color-mix(in oklab, var(--c) 50%, transparent); display: inline-flex; align-items: center; gap: 5px; }
+.chip.on::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--c); animation: breathe 1.4s ease-in-out infinite; }
+@keyframes breathe { 50% { opacity: .3; transform: scale(.7); } }
 .chip.fail { color: var(--fail); border-color: color-mix(in oklab, var(--fail) 55%, transparent); }
 .chip.call { color: var(--call); border-color: color-mix(in oklab, var(--call) 60%, transparent); animation: pulse 1.6s ease-in-out infinite; }
 @keyframes pulse { 50% { background: color-mix(in oklab, var(--call) 18%, transparent); } }
@@ -217,7 +242,7 @@ td:first-child { font-weight: 600; white-space: nowrap; }
 td:nth-child(2) { color: var(--muted); font: 12.5px/1.45 var(--font-mono); }
 tr.attn td:first-child { color: var(--call); }
 
-@media (prefers-reduced-motion: reduce) { .play, .pad, .energy i, .engine { transition: none; } .chip.call { animation: none; } }
+@media (prefers-reduced-motion: reduce) { .play, .pad, .energy i, .engine, #score { transition: none; } .chip.call, .chip.on::before { animation: none; } }
 </style>
 
 <div class="wrap">
@@ -242,29 +267,39 @@ tr.attn td:first-child { color: var(--call); }
   </header>
 
   <section class="engines" aria-label="Sound engine">
-    <div id="engineRow" class="engine-row" role="radiogroup" aria-label="Sound engine"></div>
-    <div id="ears" class="ears" hidden>
-      Tell Claude
-      <button class="ear love" type="button" data-ear="love" title="Keeps the last 20 seconds and what was playing">Love this</button>
-      <button class="ear grates" type="button" data-ear="grates" title="Keeps the last 20 seconds and what was playing">This grates</button>
-      <button class="ear" type="button" data-ear="snapshot" title="Keeps the last 30 seconds">Snapshot</button>
-      <span id="earStatus" class="ear-status" aria-live="polite"></span>
+    <div class="engine-bar">
+      <div id="engineRow" class="engine-row" role="radiogroup" aria-label="Sound engine"></div>
+      <div id="ears" class="ears" hidden>
+        Tell Claude
+        <button class="ear love" type="button" data-ear="love" title="Keeps the last 20 seconds and what was playing">Love this</button>
+        <button class="ear grates" type="button" data-ear="grates" title="Keeps the last 20 seconds and what was playing">This grates</button>
+        <button class="ear" type="button" data-ear="snapshot" title="Keeps the last 30 seconds">Snapshot</button>
+      </div>
     </div>
     <p id="engineStatus" class="engine-status" aria-live="polite"></p>
+    <span id="earStatus" class="ear-status" aria-live="polite"></span>
   </section>
 
   <section class="score" aria-label="Score">
     <canvas id="score" role="img" aria-label="Scrolling score. Each row is a session; marks are tool calls, commits, failing builds, calls for you and open questions."></canvas>
+    <div id="tip" class="tip" role="tooltip" hidden></div>
     <ul class="legend">
-      <li><i style="background: var(--lane1)"></i>tool call</li>
-      <li><i style="background: var(--gold)"></i>commit, the chord lands home</li>
-      <li><i style="background: var(--fail)"></i>failing, named: tests, typecheck, lint, build, prod</li>
-      <li><i style="background: var(--call)"></i>needs you</li>
-      <li><i style="background: var(--drone)"></i>questions waiting on you</li>
+      <li><svg viewBox="0 0 22 12" aria-hidden="true"><rect class="l1" x="0" y="6" width="6" height="4" rx="2"/><rect class="l2" x="8" y="2" width="6" height="4" rx="2"/><rect class="l3" x="16" y="5" width="6" height="4" rx="2"/></svg>a tool call, in its session's colour</li>
+      <li><svg viewBox="0 0 22 12" aria-hidden="true"><path class="gold" d="M11 0.5 16.5 6 11 11.5 5.5 6z"/></svg>commit or push, in its lane: the chord lands home</li>
+      <li><svg viewBox="0 0 22 12" aria-hidden="true"><path class="l2" d="M6 10 11 3 16 10z"/></svg>checklist step</li>
+      <li><svg viewBox="0 0 22 12" aria-hidden="true"><path class="fail" d="M0 6q2.75-5 5.5 0t5.5 0 5.5 0 5.5 0"/></svg>failing, named: tests, typecheck, lint, build, prod</li>
+      <li><svg viewBox="0 0 22 12" aria-hidden="true"><circle class="call" cx="11" cy="6" r="4.5"/></svg>needs you</li>
+      <li><svg viewBox="0 0 22 12" aria-hidden="true"><path class="drone" d="M0 12V9h8V5h14v7z"/></svg>questions waiting on you</li>
     </ul>
   </section>
 
   <section class="desk">
+    <div class="panel lanes">
+      <h2>Sessions</h2>
+      <ul id="laneList"></ul>
+      <p id="laneEmpty" class="empty" hidden>No sessions yet. Turn on the demo, add a lane in the jam deck, or start a Claude Code session with the undertone mod.</p>
+    </div>
+
     <div class="panel projects">
       <h2>Projects</h2>
       <p class="hint">Pick what you hear. The lead project sets the key and tempo.</p>
@@ -273,12 +308,6 @@ tr.attn td:first-child { color: var(--call); }
       </div>
       <ul id="projList"></ul>
       <p id="projEmpty" class="empty" hidden>Projects show up here as their sessions start or as questions wait on you in them.</p>
-    </div>
-
-    <div class="panel lanes">
-      <h2>Sessions</h2>
-      <ul id="laneList"></ul>
-      <p id="laneEmpty" class="empty" hidden>No sessions yet. Turn on the demo, add a lane in the jam deck, or start a Claude Code session with the undertone mod.</p>
     </div>
 
     <div class="panel deck">
@@ -327,7 +356,7 @@ tr.attn td:first-child { color: var(--call); }
           <tr class="attn"><td>Waiting on you</td><td>coter-kit waiting notes, every project</td><td>A low drone, one layer per open question, under everything until you answer.</td></tr>
           <tr class="attn"><td>Something breaks</td><td>a failing test, typecheck, lint or build; coter-kit checks blocking a stop; production errors</td><td>The session's call with its last note flat, then a sour note held over every chord. Each kind has its own: tests a tritone, typecheck a high grinding second, lint a softer seventh, build a low second, production errors a low rumble. The score names it.</td></tr>
           <tr><td>It's fixed</td><td>the same check passes (a different check passing doesn't count)</td><td>The session's call, settled, and the sour note slides into the chord.</td></tr>
-          <tr><td>Commit</td><td><code>git commit</code> in Bash</td><td>The progression resolves to the home chord, with a bell.</td></tr>
+          <tr><td>Commit or push</td><td><code>git commit</code>, <code>git push</code> in Bash</td><td>The progression resolves to the home chord, with bells in that session's lane. A commit and push in one go count once.</td></tr>
           <tr><td>Tool call</td><td>every tool call</td><td>A note in that session's voice. Reads sit low, edits land on chord tones, commands ride high.</td></tr>
           <tr><td>Claude is working</td><td>turn start / end</td><td>Drums fade in. When every session goes quiet, it thins back to pads and tape hiss.</td></tr>
           <tr><td>Checklist step</td><td>coter-kit checklist</td><td>A bell climbs one step. A finished list lands home.</td></tr>
@@ -576,10 +605,18 @@ function setEngine(id) {
   if (S.audio) startEngine(id);
 }
 
+// One line under the switch: what the engine is doing when it has something to say, else how it sounds
+let engineSays = { text: '', err: false };
 function setEngineStatus(text, isError) {
+  engineSays = { text: text || '', err: !!isError };
+  paintEngineLine();
+}
+function paintEngineLine() {
   const el = qs('#engineStatus');
-  el.textContent = text || '';
-  el.classList.toggle('err', !!isError);
+  const def = ENGINES.get(S.engineId);
+  el.textContent = engineSays.text || (def ? def.label + ': ' + def.blurb : '');
+  el.classList.toggle('err', engineSays.err);
+  el.classList.toggle('busy', !!engineSays.text && !engineSays.err);
 }
 
 // ------------------------------------------------------------------ the clock
@@ -726,8 +763,9 @@ function phrase(ln, notes, gap = '8n', vel = 0.5, bell = false, lastDur) {
   });
 }
 
-function bellArp() {
-  phrase(null, S.chord.pad.map((m) => m + 12).slice(-4), '16n', 0.5, true);
+// The bells ring in the lane that landed it, so the score shows who
+function bellArp(ln) {
+  phrase(ln || null, S.chord.pad.map((m) => m + 12).slice(-4), '16n', 0.5, true);
 }
 
 // A session's call. Settled (done) lands on a chord root; asking ends on a held, rising note
@@ -824,6 +862,12 @@ function updateDrone() {
 // ------------------------------------------------------------------ sessions and events
 
 const laneColor = (i) => 'var(--lane' + ((i % 4) + 1) + ')';
+
+// Two sessions in one project often share a name; the voice tells them apart
+function displayLabel(l) {
+  for (const o of lanes.values()) if (o !== l && !o.ended && !o.off && o.label === l.label) return l.label + ' · ' + l.timbre;
+  return l.label;
+}
 
 function ensureLane(e, source) {
   const id = String(e.lane || 'jam');
@@ -953,13 +997,17 @@ function ingest(e, source) {
       ln.pulses.push({ t: wall(), n: Math.max(1, Number(e.count) || 1), what: String(e.what || 'events') });
       break;
     }
-    case 'commit': case 'push':
+    case 'commit': case 'push': {
       if (ln.off) break;
+      // `git commit && git push` is one moment: one mark that says both, one landing, one bell
+      const twin = vis.marks.find((k) => k.type === 'commit' && k.lane === ln.id && wall() - k.t < 3);
+      if (twin) { twin[e.type] = true; break; }
       S.landHome = true;
       kick(0.15);
-      bellArp();
-      vis.marks.push({ t: wall(), type: 'commit', lane: ln.id });
+      bellArp(ln);
+      vis.marks.push({ t: wall(), type: 'commit', lane: ln.id, [e.type]: true });
       break;
+    }
     case 'fail': {
       // Each check fails and clears on its own: a passing lint doesn't clear failing tests
       const check = L.checkOf(e);
@@ -993,7 +1041,7 @@ function ingest(e, source) {
         const i = Math.round((done / total) * (scale.length - 2));
         phrase(ln, [scale[i], scale[i + 1]], '16n', 0.42, true);
         vis.marks.push({ t: wall(), type: 'step', lane: ln.id });
-        if (done >= total) { S.landHome = true; setTimeout(bellArp, 350); }
+        if (done >= total) { S.landHome = true; setTimeout(() => bellArp(ln), 350); }
       }
       if (e.done == null && done >= total) ln.done = 0;
       break;
@@ -1156,7 +1204,9 @@ function preview() {
       }
     }
   }
-  vis.marks.push({ t: now - 14.2, type: 'commit', lane: 'demo-1' });
+  vis.marks.push({ t: now - 14.2, type: 'commit', lane: 'demo-1', commit: true });
+  chordOf(m, m.home).pad.map((x) => x + 12).slice(-4).forEach((midi, i) =>
+    vis.notes.push({ t: now - 14.2 + 0.15 + i * sixteenth, lane: 'demo-1', midi, vel: 0.5, dur: 0.3, bell: true }));
   vis.marks.push({ t: now - 31, type: 'prompt', lane: 'demo-3' });
   vis.marks.push({ t: now - 22, type: 'step', lane: 'demo-2' });
   vis.marks.push({ t: now - 6, type: 'step', lane: 'demo-1' });
@@ -1356,9 +1406,10 @@ const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&l
 function renderEngines() {
   qs('#engineRow').innerHTML = ENGINES.list.map((d) => {
     const blocked = d.local && !LIVE;
-    return `<button class="engine" type="button" role="radio" data-engine="${d.id}" aria-checked="${S.engineId === d.id}" ${blocked ? 'disabled' : ''}>
-      <b>${esc(d.label)}${blocked ? '<small>local page</small>' : ''}</b><span>${esc(d.blurb)}</span></button>`;
+    return `<button class="engine" type="button" role="radio" data-engine="${d.id}" aria-checked="${S.engineId === d.id}" ${blocked ? 'disabled' : ''}
+      title="${esc(d.blurb)}${blocked ? ' Plays on the local page only.' : ''}">${esc(d.label)}${blocked ? '<small>local</small>' : ''}</button>`;
   }).join('');
+  paintEngineLine();
 }
 qs('#engineRow').addEventListener('click', (ev) => {
   const b = ev.target.closest('[data-engine]');
@@ -1441,18 +1492,21 @@ function pulsesLastHour(l) {
   return by.size ? [...by].map(([what, n]) => n + ' ' + what).join(' · ') : 'nothing';
 }
 
+// Under a session's name: its voice, and its project when the name doesn't already say it
+const laneDetail = (l) => [l.timbre, l.label.startsWith(l.project) ? '' : l.project, l.off ? 'project off' : ''].filter(Boolean).join(' · ');
+
 function renderLanes() {
   const items = [...lanes.values()].filter((l) => !l.ended);
   qs('#laneEmpty').hidden = items.length > 0;
   qs('#laneList').innerHTML = items.map((l) => `
     <li class="lane ${l.off ? 'off' : ''}" style="--c: ${l.color}">
       <span class="sw"></span>
-      <div class="who"><strong>${esc(l.label)}</strong><span>${esc(l.project)} · ${l.timbre}${l.off ? ' · project off' : ''}</span></div>
+      <div class="who"><strong>${esc(l.label)}</strong><span>${esc(laneDetail(l))}</span></div>
       <div class="chips">
         ${l.needs && l.needs !== 'done' ? `<span class="chip call">${NEEDS[l.needs]}</span>` : `<span class="chip ${l.busy ? 'on' : ''}">${l.busy ? 'working' : l.needs === 'done' ? NEEDS.done : 'idle'}</span>`}
         ${Object.values(l.failChecks).map((f) => `<span class="chip fail">${esc(L.checkLabel(f.check))} failing</span>`).join('')}
         ${l.scheduled ? '<span class="chip">scheduled run</span>' : ''}
-        ${l.total ? `<span class="chip">${l.done}/${l.total}</span>` : ''}
+        ${l.total ? `<span class="chip" title="coter-kit checklist">step ${l.done} of ${l.total}</span>` : ''}
         ${l.external ? `<span class="chip">${esc(pulsesLastHour(l))} in the last hour</span>` : ''}
         <span class="energy" title="Activity"><i style="width:${Math.round(l.energy * 100)}%"></i></span>
       </div>
@@ -1518,7 +1572,9 @@ qs('#calls').addEventListener('change', (ev) => { S.callsOn = ev.target.checked;
 
 const cv = qs('#score');
 const g = cv.getContext('2d');
-let W = 0, H = 0, colors = {}, colorsAt = 0;
+let W = 0, H = 0, colors = {}, colorsAt = 0, drawnRows = 0;
+const MONO = '"IBM Plex Mono", ui-monospace, monospace';
+const FONT = '500 11px ' + MONO, FONT_SMALL = '500 10px ' + MONO, FONT_LANE = '600 11.5px ' + MONO;
 
 function readColors() {
   const cs = getComputedStyle(document.documentElement);
@@ -1535,6 +1591,7 @@ function withAlpha(hex, a) {
 }
 
 function resize() {
+  if (pointer) { pointer = null; tip.hidden = true; }
   const r = cv.getBoundingClientRect();
   const dpr = Math.min(2, window.devicePixelRatio || 1);
   W = r.width; H = r.height;
@@ -1551,11 +1608,16 @@ function draw() {
   const head = W - (W < 560 ? 28 : 56);
   const X = (t) => head - (now - t) * pps;
   const left = now - head / pps - 2;
-  const top = 30, bottom = H - 34;
+  const top = 30, bottom = H - 38;
   const live = [...lanes.values()].filter((l) => !l.off);
   const rows = Math.max(1, live.length);
+  // The score grows with the lanes, so a lane never gets squeezed thinner than its name and notes
+  if (rows !== drawnRows) { drawnRows = rows; cv.style.setProperty('--rows', rows); }
   const bandH = (bottom - top) / rows;
   const rowOf = new Map(live.map((l, i) => [l.id, i]));
+  // What a pointer over the score can ask about: boxes, each with what to say
+  const hits = [];
+  const hit = (x0, y0, x1, y1, text) => hits.push({ x0, y0, x1, y1, text });
 
   g.clearRect(0, 0, W, H);
   g.fillStyle = colors.canvas;
@@ -1569,7 +1631,7 @@ function draw() {
   g.stroke();
 
   // Chord ruler
-  g.font = '500 11px "IBM Plex Mono", ui-monospace, monospace';
+  g.font = FONT;
   g.textBaseline = 'middle';
   for (const c of vis.chords) {
     if (c.t < left - 8) continue;
@@ -1579,33 +1641,23 @@ function draw() {
     g.fillText(c.name + (c.home ? '  home' : ''), x + 6, 14);
   }
 
-  // Lane bands
+  if (!live.length) {
+    g.fillStyle = colors.muted;
+    g.textAlign = 'center';
+    g.fillText(lanes.size ? 'every project is switched off' : 'quiet: a lane appears when a session starts', head / 2, (top + bottom) / 2);
+    g.textAlign = 'left';
+  }
+
+  // Lane bands (names go on last, above the notes and the fade)
   live.forEach((l, i) => {
     const y = top + i * bandH;
-    const col = colors.lanes[l.n % 4];
     if (i > 0) { g.strokeStyle = colors.line; g.beginPath(); g.moveTo(0, Math.round(y) + 0.5); g.lineTo(W, Math.round(y) + 0.5); g.stroke(); }
-    g.globalAlpha = l.ended ? 0.4 : 1;
-    g.fillStyle = col;
-    g.fillText(l.label + (l.muted ? '  (muted)' : ''), 10, y + 12);
-    // Needs you: a pulsing ring by the name
-    if (l.needs === 'permission' || l.needs === 'idle') {
-      const pulse = REDUCED || !S.playing ? 1 : 0.55 + 0.45 * Math.sin(now * 4);
-      g.globalAlpha = pulse;
-      g.strokeStyle = colors.call;
-      g.lineWidth = 2;
-      const tw = g.measureText(l.label).width;
-      g.beginPath(); g.arc(10 + tw + 12, y + 12, 5, 0, Math.PI * 2); g.stroke();
-      g.lineWidth = 1;
-      g.fillStyle = colors.call;
-      g.fillText(NEEDS[l.needs], 10 + tw + 24, y + 12);
-    }
-    g.globalAlpha = 1;
     for (const f of l.fails) {
       const end = f.end || now;
       if (end < left) continue;
       const x0 = Math.max(0, X(f.start)), x1 = Math.min(head, X(end));
-      // Several failures in one lane stack 20px apart, each with its name just above its wave
-      const mid = y + bandH / 2 - 6 + (f.row || 0) * 20;
+      // Below the lane's name; several failures in one lane stack 20px apart, each named just above its wave
+      const mid = y + Math.max(36, bandH / 2 + 6) + (f.row || 0) * 20;
       g.strokeStyle = colors.fail;
       g.globalAlpha = 0.8;
       g.lineWidth = 1.5;
@@ -1615,6 +1667,8 @@ function draw() {
       g.lineWidth = 1;
       g.globalAlpha = 1;
       if (X(f.start) > 0) { g.fillStyle = colors.fail; g.fillText(L.checkLabel(f.check) + (f.end ? ' fixed' : ' failing'), X(f.start) + 4, mid - 9); }
+      hit(x0, mid - 16, x1, mid + 6, displayLabel(l) + '\n' + L.checkLabel(f.check) +
+        (f.end ? ' failed for ' + howLong(f.end - f.start) + ', fixed ' + ago(now - f.end) : ' failing for ' + howLong(now - f.start)));
     }
   });
 
@@ -1651,77 +1705,159 @@ function draw() {
   }
   g.globalAlpha = 1;
 
-  // Marks: commits across everything; steps, prompts and calls in their lane
+  // Marks: steps, prompts, calls and commits, each in the lane that made it
   for (const k of vis.marks) {
     if (k.t < left) continue;
     const x = Math.round(X(k.t)) + 0.5;
+    const r = rowOf.get(k.lane);
     if (k.type === 'commit') {
+      // The chord lands home for everyone: a faint line through the whole score...
       g.strokeStyle = colors.gold;
-      g.lineWidth = 1.5;
+      g.globalAlpha = 0.3;
       g.beginPath(); g.moveTo(x, top - 4); g.lineTo(x, bottom); g.stroke();
+      g.globalAlpha = 1;
+      if (r == null) continue;
+      // ...and a bright one through the lane that committed, with a diamond that says what it was
+      // (low in the lane, with its other marks, so the lane's name never covers it)
+      const y = top + r * bandH;
+      const dy = y + bandH - 11;
+      g.lineWidth = 1.5;
+      g.beginPath(); g.moveTo(x, y + 3); g.lineTo(x, dy); g.stroke();
       g.lineWidth = 1;
+      g.fillStyle = colors.canvas;
+      g.beginPath(); g.moveTo(x, dy - 8); g.lineTo(x + 8, dy); g.lineTo(x, dy + 8); g.lineTo(x - 8, dy); g.fill();
       g.fillStyle = colors.gold;
-      g.beginPath(); g.moveTo(x, top - 9); g.lineTo(x + 5, top - 4); g.lineTo(x, top + 1); g.lineTo(x - 5, top - 4); g.fill();
+      g.beginPath(); g.moveTo(x, dy - 5.5); g.lineTo(x + 5.5, dy); g.lineTo(x, dy + 5.5); g.lineTo(x - 5.5, dy); g.fill();
+      const what = k.commit && k.push ? 'commit · push' : k.push ? 'push' : 'commit';
+      g.font = FONT_SMALL;
+      g.fillText(what, x + 10, dy);
+      hit(x - 9, dy - 9, x + 12 + g.measureText(what).width, dy + 9, displayLabel(live[r]) + '\n' + what + ', ' + ago(now - k.t) + '\nthe chord landed home');
+      g.font = FONT;
       continue;
     }
-    const r = rowOf.get(k.lane);
     if (r == null) continue;
     const y = top + r * bandH;
+    const name = displayLabel(live[r]);
     g.fillStyle = colors.lanes[live[r].n % 4];
-    if (k.type === 'step') { g.beginPath(); g.moveTo(x - 4, y + bandH - 6); g.lineTo(x, y + bandH - 12); g.lineTo(x + 4, y + bandH - 6); g.fill(); }
-    if (k.type === 'prompt') { g.globalAlpha = 0.5; g.fillRect(x - 0.5, y + 4, 1, bandH - 8); g.globalAlpha = 1; }
+    if (k.type === 'step') {
+      g.beginPath(); g.moveTo(x - 4, y + bandH - 6); g.lineTo(x, y + bandH - 12); g.lineTo(x + 4, y + bandH - 6); g.fill();
+      hit(x - 7, y + bandH - 15, x + 7, y + bandH - 3, name + '\nchecklist step, ' + ago(now - k.t));
+    }
+    if (k.type === 'prompt') {
+      g.globalAlpha = 0.5; g.fillRect(x - 0.5, y + 4, 1, bandH - 8); g.globalAlpha = 1;
+      hit(x - 3, y + 22, x + 3, y + bandH - 4, name + '\nyou sent a prompt, ' + ago(now - k.t));
+    }
     if (k.type === 'call' || k.type === 'done') {
       g.strokeStyle = k.type === 'call' ? colors.call : colors.lanes[live[r].n % 4];
       g.lineWidth = 1.5;
       g.beginPath(); g.arc(x, y + bandH - 12, k.type === 'call' ? 6 : 4, 0, Math.PI * 2); g.stroke();
       g.lineWidth = 1;
+      hit(x - 8, y + bandH - 20, x + 8, y + bandH - 4, name + '\n' + (k.type === 'call' ? 'asked for you' : 'finished its turn: your move') + ', ' + ago(now - k.t));
     }
   }
 
-  // Waiting-on-you drone along the bottom
-  const baseY = H - 8;
+  // Waiting-on-you drone: a band along the bottom, thicker with each open question (six at most)
+  const baseY = H - 5;
+  const thick = (n) => Math.min(n, 6) * 2;
   g.fillStyle = colors.drone;
-  g.globalAlpha = 0.45;
+  g.globalAlpha = 0.5;
   g.beginPath();
   g.moveTo(0, baseY);
   let prevN = 0;
   for (const w of vis.waits) {
     if (w.t < left) { prevN = w.n; continue; }
     const x = Math.min(head, X(w.t));
-    g.lineTo(x, baseY - Math.min(prevN, 6) * 3.5);
-    g.lineTo(x, baseY - Math.min(w.n, 6) * 3.5);
+    g.lineTo(x, baseY - thick(prevN));
+    g.lineTo(x, baseY - thick(w.n));
     prevN = w.n;
   }
-  g.lineTo(head, baseY - Math.min(prevN, 6) * 3.5);
+  g.lineTo(head, baseY - thick(prevN));
   g.lineTo(head, baseY);
   g.closePath();
   g.fill();
   g.globalAlpha = 1;
-  g.fillStyle = colors.drone;
-  const { by, total } = waitingTotals();
-  const top3 = Object.entries(by).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([p, n]) => p + ' ' + n).join(' · ');
-  g.fillText(total ? `${total} waiting on you  ${top3}` : 'nothing waiting on you', 10, H - 22);
 
-  // Fade the left edge, shade what hasn't played yet, draw the playhead
+  // Fade the left edge, shade what hasn't played yet
   const fade = g.createLinearGradient(0, 0, 70, 0);
   fade.addColorStop(0, withAlpha(colors.canvas, 1));
   fade.addColorStop(1, withAlpha(colors.canvas, 0));
   g.fillStyle = fade;
   g.globalAlpha = 0.9;
-  g.fillRect(0, top + 18, 70, bottom - top - 18);
+  g.fillRect(0, top + 1, 70, bottom - top - 1);
   g.globalAlpha = 0.55;
   g.fillStyle = colors.canvas;
   g.fillRect(head, 0, W - head, H);
   g.globalAlpha = 1;
-  g.fillStyle = colors.accent;
-  g.fillRect(Math.round(head), top - 8, 1.5, bottom - top + 8);
+
+  // Lane names, over everything: a colour bar, the name on a backing, and a ring when it needs you
+  live.forEach((l, i) => {
+    const y = top + i * bandH;
+    const col = colors.lanes[l.n % 4];
+    const name = displayLabel(l) + (l.muted ? '  muted' : '');
+    g.globalAlpha = l.ended ? 0.4 : 1;
+    g.fillStyle = col;
+    g.beginPath(); g.roundRect(0, y + 5, 3, bandH - 10, [0, 2, 2, 0]); g.fill();
+    g.font = FONT_LANE;
+    const tw = g.measureText(name).width;
+    g.fillStyle = colors.canvas;
+    g.globalAlpha *= 0.82;
+    g.beginPath(); g.roundRect(7, y + 3, tw + 10, 18, 5); g.fill();
+    g.globalAlpha = l.ended ? 0.4 : 1;
+    g.fillStyle = col;
+    g.fillText(name, 12, y + 12);
+    g.font = FONT;
+    const doing = l.needs ? NEEDS[l.needs] : l.busy ? 'working' : 'idle';
+    hit(0, y + 3, tw + 17, y + 21, l.label + '\n' + [laneDetail(l), doing, l.muted ? 'muted' : ''].filter(Boolean).join(' · '));
+    if (l.needs === 'permission' || l.needs === 'idle') {
+      const pulse = REDUCED || !S.playing ? 1 : 0.55 + 0.45 * Math.sin(now * 4);
+      const said = NEEDS[l.needs];
+      const sw = g.measureText(said).width;
+      g.fillStyle = colors.canvas;
+      g.globalAlpha = 0.82;
+      g.beginPath(); g.roundRect(tw + 20, y + 3, sw + 28, 18, 5); g.fill();
+      g.globalAlpha = pulse;
+      g.strokeStyle = colors.call;
+      g.lineWidth = 2;
+      g.beginPath(); g.arc(tw + 31, y + 12, 4.5, 0, Math.PI * 2); g.stroke();
+      g.lineWidth = 1;
+      g.fillStyle = colors.call;
+      g.fillText(said, tw + 42, y + 12);
+    }
+    g.globalAlpha = 1;
+  });
+
+  // What's waiting on you, above its band
+  const { by, total } = waitingTotals();
+  const said = total ? total + ' waiting on you' : 'nothing waiting on you';
+  g.fillStyle = total ? colors.drone : colors.muted;
+  g.fillText(said, 12, H - 23);
+  // The biggest few, as many as fit before the playhead (and "paused")
+  const at = 12 + g.measureText(said).width + 12;
+  const room = head - at - (S.playing ? 8 : 70);
+  const most = Object.entries(by).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([p, n]) => p + ' ' + n);
+  while (most.length && g.measureText(most.join(' · ')).width > room) most.pop();
+  if (most.length) {
+    g.fillStyle = colors.muted;
+    g.fillText(most.join(' · '), at, H - 23);
+  }
+  if (total) hit(0, H - 32, head, H, said + '\n' + Object.entries(by).sort((a, b) => b[1] - a[1]).map(([p, n]) => p + ' ' + n).join('\n'));
+
+  // The playhead: now
+  g.fillStyle = colors.fg;
+  g.globalAlpha = 0.55;
+  g.fillRect(Math.round(head), top - 6, 1, bottom - top + 6);
+  g.globalAlpha = 1;
+  g.beginPath(); g.arc(Math.round(head) + 0.5, top - 8, 3, 0, Math.PI * 2); g.fill();
 
   if (!S.playing) {
     g.fillStyle = colors.muted;
     g.textAlign = 'right';
-    g.fillText(S.audio ? 'paused' : 'press Play', head - 8, H - 22);
+    g.fillText(S.audio ? 'paused' : 'press Play', head - 8, H - 23);
     g.textAlign = 'left';
   }
+
+  scoreHits = hits;
+  if (pointer) showTip();
 
   // Forget what scrolled off long ago
   const cutoff = now - 200;
@@ -1735,6 +1871,34 @@ function draw() {
     for (const l of lanes.values()) l.fails = l.fails.filter((f) => !f.end || f.end > cutoff);
   }
 }
+
+// Point at anything on the score and it says what it is, who made it and when
+const ago = (s) => (s < 1.5 ? 'just now' : howLong(s) + ' ago');
+const howLong = (s) => (s < 60 ? Math.round(s) + 's' : Math.floor(s / 60) + 'm ' + String(Math.floor(s % 60)).padStart(2, '0') + 's');
+const tip = qs('#tip');
+let scoreHits = [], pointer = null, tipTimer = null;
+
+function showTip() {
+  const h = scoreHits.findLast((b) => pointer.x >= b.x0 && pointer.x <= b.x1 && pointer.y >= b.y0 && pointer.y <= b.y1);
+  if (!h) { tip.hidden = true; return; }
+  if (tip.textContent !== h.text) tip.textContent = h.text;
+  tip.hidden = false;
+  const flip = pointer.x + 16 + tip.offsetWidth > W;
+  tip.style.left = (flip ? pointer.x - 12 - tip.offsetWidth : pointer.x + 14) + 'px';
+  tip.style.top = clamp(pointer.y + 14, 0, Math.max(0, H - tip.offsetHeight)) + 'px';
+}
+function pointAt(ev) {
+  const r = cv.getBoundingClientRect();
+  pointer = { x: ev.clientX - r.left, y: ev.clientY - r.top };
+  clearTimeout(tipTimer);
+  showTip();
+}
+cv.addEventListener('pointermove', pointAt);
+cv.addEventListener('pointerdown', pointAt);
+cv.addEventListener('pointerleave', (ev) => {
+  // A finger lifts as soon as it taps: leave the answer up for a moment
+  tipTimer = setTimeout(() => { pointer = null; tip.hidden = true; }, ev.pointerType === 'touch' ? 2500 : 0);
+});
 
 function loop() {
   draw();

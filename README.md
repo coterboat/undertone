@@ -23,9 +23,11 @@ Then open http://127.0.0.1:4747 and press Play. With the plugin installed you do
 | A low drone that grows | Questions waiting on you, counted from coter-kit's `waiting` notes in every project you have on |
 | A session's call ending flat, then a sour note held over every chord | Something that session runs is broken. Each kind has its own sour note: tests a tritone, typecheck a high grinding second, lint a softer seventh, build a low second, production errors a low rumble; the score names it ("tests (vitest) failing") |
 
-A call comes from the project and worktree, not the session, so `jobsnearme · oct2-signup` sounds the same every time it starts and you learn who's calling. The ending carries the meaning: settled means done, rising means it needs you. Everything else is texture: tool calls are notes in the session's voice (reads low, edits on chord tones, commands high), drums fade in while Claude works, a commit resolves the progression home with a bell, a checklist step climbs a bell, and a fixed check plays the session's call settled and slides the sour note into the chord. Each check fails and clears on its own: a passing lint doesn't clear failing tests.
+A call comes from the project and worktree, not the session, so `jobsnearme · oct2-signup` sounds the same every time it starts and you learn who's calling. The ending carries the meaning: settled means done, rising means it needs you. Everything else is texture: tool calls are notes in the session's voice (reads low, edits on chord tones, commands high), drums fade in while Claude works, a commit or push resolves the progression home with bells in that session's lane, a checklist step climbs a bell, and a fixed check plays the session's call settled and slides the sour note into the chord. Each check fails and clears on its own: a passing lint doesn't clear failing tests.
 
 A scheduled run (a desktop scheduled task) plays quietly: no calls when its turn ends, no notes for just looking around, only edits, commits, failures and a permission prompt that blocks it.
+
+The score on the page shows the same: a row per session, a diamond in the row that committed or pushed, a red wave named after the check while it fails, a ring when a session needs you, and the drone along the bottom. Point at anything on it to see what it is, who made it and when.
 
 ## Sound engines
 
@@ -42,7 +44,7 @@ SuperCollider is started by the bridge (`sclang` running `sc/undertone.scd`) the
 
 ## Ears
 
-undertone can't be heard by Claude directly, so it keeps what you hear in a form Claude can read. On the local page, under the engine cards:
+undertone can't be heard by Claude directly, so it keeps what you hear in a form Claude can read. On the local page, next to the engine switch:
 
 | Button | Keeps |
 | :- | :- |

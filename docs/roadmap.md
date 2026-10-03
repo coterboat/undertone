@@ -1,6 +1,6 @@
 # undertone roadmap
 
-Updated 2026-10-03, at 0.6.0. What's built, what's next and in what order, and what waits on purpose. The day-to-day threads live in coter-kit's brain; this is the plan they hang off. Change it when the order changes.
+Updated 2026-10-03, at 0.6.1. What's built, what's next and in what order, and what waits on purpose. The day-to-day threads live in coter-kit's brain; this is the plan they hang off. Change it when the order changes.
 
 ## Where it is
 
@@ -13,6 +13,7 @@ Updated 2026-10-03, at 0.6.0. What's built, what's next and in what order, and w
 | 0.4.0 (`d980922`) | The bridge runs outside sources itself (one window), the Azure source works on Windows, the ourPlace lane tells chats from requests, this roadmap |
 | 0.5.0 (`84696b9`) | Timesheets: each machine writes a small daily summary per project into the brain; `npm run week` and `GET /timesheet` add up every machine's |
 | 0.6.0 | A bridge that's simply there: the first session starts it detached, it leaves after a quiet hour, `/undertone stop` holds until you start it again |
+| 0.6.1 | A design pass on the page: commits and pushes marked in the lane that made them, hover tips on the score, a compact engine switch so the score sits near the top |
 
 ## Now
 
