@@ -153,7 +153,7 @@ fork { 0.5.wait; s.waitForBoot({
 	SynthDef(\utDrone, { |out, verb, f1 = 55, f2 = 110, f3 = 165, level = 0|
 		var lvl = Lag.kr(level, 3) * LFNoise2.kr(0.06).range(0.6, 1);
 		var sig = (SinOsc.ar(Lag.kr(f1, 3)) * 0.6) + (SinOsc.ar(Lag.kr(f2, 3) * 0.997) * 0.3) + (LFTri.ar(Lag.kr(f3, 3) * 1.002) * 0.15);
-		sig = Pan2.ar(LPF.ar(sig, 520) * lvl, 0);
+		sig = Pan2.ar(LPF.ar(sig, 900) * lvl, 0);
 		Out.ar(out, sig);
 		Out.ar(verb, sig * 0.5);
 	}).add;
@@ -195,6 +195,17 @@ fork { 0.5.wait; s.waitForBoot({
 		SendPeakRMS.kr(In.ar(0, 2), 10, 3, '/ut/peak');
 	}).add;
 
+	// The last 30 seconds of output, written round and round into a buffer, so a reaction on the
+	// page can keep what you were just hearing (/ut/dump)
+	SynthDef(\utRing, { |buf, phaseBus|
+		var phase = Phasor.ar(0, 1, 0, BufFrames.kr(buf));
+		BufWr.ar(In.ar(0, 2), buf, phase);
+		Out.kr(phaseBus, A2K.kr(phase));
+	}).add;
+
+	~ringBuf = Buffer.alloc(s, (s.sampleRate ? 48000 * 30).asInteger, 2);
+	~phaseBus = Bus.control(s, 1);
+
 	s.sync;
 
 	~masterBus = Bus.audio(s, 2);
@@ -208,6 +219,7 @@ fork { 0.5.wait; s.waitForBoot({
 	~master = Synth(\utMaster, [\in, ~masterBus, \level, 0], ~mg);
 	~drone = Synth(\utDrone, [\out, ~masterBus, \verb, ~verbBus], ~src);
 	~meter = Synth(\utMeter, [], ~mg, \addAfter);
+	~ring = Synth(\utRing, [\buf, ~ringBuf, \phaseBus, ~phaseBus], ~mg, \addAfter);
 	~vinyl = Synth(\utVinyl, [\out, ~masterBus, \amount, 0.25], ~src);
 	~cutoff = 900;
 	~sour = nil;
@@ -271,8 +283,8 @@ fork { 0.5.wait; s.waitForBoot({
 
 	OSCdef(\utDrone, { |msg|
 		var lvl = msg[1], t = msg[2];
-		~drone.set(\level, if(lvl > 0) { 0.02 + (0.07 * lvl) } { 0 },
-			\f1, ~fold.(t, 26, 37).midicps, \f2, ~fold.(t, 38, 49).midicps, \f3, ~fold.(t + 7, 38, 49).midicps);
+		~drone.set(\level, if(lvl > 0) { 0.02 + (0.05 * lvl) } { 0 },
+			\f1, ~fold.(t, 38, 49).midicps, \f2, ~fold.(t, 50, 61).midicps, \f3, ~fold.(t + 7, 50, 61).midicps);
 	}, '/ut/drone');
 
 	OSCdef(\utTexture, { |msg| ~vinyl.set(\amount, msg[1]) }, '/ut/texture');
@@ -280,6 +292,18 @@ fork { 0.5.wait; s.waitForBoot({
 	OSCdef(\utLevel, { |msg| ~master.set(\level, msg[1]) }, '/ut/level');
 	OSCdef(\utPeak, { |msg| ~bridge.sendMsg('/ut/peak', msg[3], msg[4], msg[5], msg[6]) }, '/ut/peak');
 	OSCdef(\utPing, { ~bridge.sendMsg('/ut/pong') }, '/ut/ping');
+	// Write the ring to a file and tell the bridge where its write head was
+	OSCdef(\utDump, { |msg|
+		var file = msg[1].asString;
+		fork {
+			var c = Condition.new, head = 0;
+			~phaseBus.get({ |v| head = v; c.unhang });
+			c.hang;
+			~ringBuf.write(file, "wav", "int16");
+			s.sync;
+			~bridge.sendMsg('/ut/dumped', file, head.asFloat, ~ringBuf.numFrames.asFloat);
+		};
+	}, '/ut/dump');
 	OSCdef(\utQuit, { s.quit; AppClock.sched(0.5, { 0.exit; nil }) }, '/ut/quit');
 
 	~bridge.sendMsg('/ut/ready');

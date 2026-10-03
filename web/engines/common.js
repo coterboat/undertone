@@ -79,7 +79,7 @@
     const breath = new Tone.Gain(1)
     const lfo = new Tone.LFO({ frequency: 0.06, min: 0.55, max: 1 }).start()
     lfo.connect(breath.gain)
-    const lp = new Tone.Filter(520, 'lowpass')
+    const lp = new Tone.Filter(900, 'lowpass')
     const oscs = [
       new Tone.Oscillator({ type: 'sine', frequency: 65, volume: -4 }),
       new Tone.Oscillator({ type: 'sine', frequency: 130, detune: -5, volume: -10 }),
@@ -90,10 +90,13 @@
     send(breath, { dry: 1, rv: 0.5 })
     return {
       set(level, tonic, time) {
-        gain.gain.rampTo(level ? 0.02 + 0.07 * level : 0, 3, time)
-        oscs[0].frequency.rampTo(hz(fold(tonic, 26, 37)), 3, time)
-        oscs[1].frequency.rampTo(hz(fold(tonic, 38, 49)), 3, time)
-        oscs[2].frequency.rampTo(hz(fold(tonic + 7, 38, 49)), 3, time)
+        // An octave above the bass: low enough to sit under everything, high enough that laptop
+        // speakers play it and it doesn't swamp the sub (measured: at full strength the old one took
+        // a third of the mix's energy)
+        gain.gain.rampTo(level ? 0.02 + 0.05 * level : 0, 3, time)
+        oscs[0].frequency.rampTo(hz(fold(tonic, 38, 49)), 3, time)
+        oscs[1].frequency.rampTo(hz(fold(tonic, 50, 61)), 3, time)
+        oscs[2].frequency.rampTo(hz(fold(tonic + 7, 50, 61)), 3, time)
       },
       dispose: () => [gain, breath, lfo, lp, ...oscs].forEach((n) => n.dispose()),
     }

@@ -6,14 +6,20 @@
 //   GET  /health          { ok, name, lanes, listeners }
 //   POST /sc/start        start SuperCollider (sclang running sc/undertone.scd) if it isn't running
 //   POST /sc              notes for SuperCollider, as JSON; relayed to sclang over OSC
+//   POST /ear             a reaction or snapshot from the page: the last 20-30 s of audio and what
+//                         was playing; saved with its analysis under ~/.undertone/ear (see ear/)
+// Every event is also appended to ~/.undertone/log/<date>.jsonl, the raw material for metrics.
 // Listens on 127.0.0.1 only. No dependencies: `node bridge/server.mjs [port]`.
 
 import http from 'node:http'
 import dgram from 'node:dgram'
 import fs from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 import { spawn, execFile } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
+import { analyzeClip, parseWav, writeWav } from '../ear/analyze.mjs'
+import { critique, geminiKey } from '../ear/gemini.mjs'
 
 const PORT = Number(process.argv[2] || process.env.UNDERTONE_PORT || 4747)
 const HOST = '127.0.0.1'
@@ -21,6 +27,12 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const PAGE = path.join(ROOT, 'web', 'index.html')
 const ENGINES = path.join(ROOT, 'web', 'engines')
 const MAX_BODY = 64 * 1024
+const MAX_EAR_BODY = 16 * 1024 * 1024
+const HOME = process.env.UNDERTONE_HOME || path.join(os.homedir(), '.undertone')
+const LOG_DIR = path.join(HOME, 'log')
+const EAR_DIR = path.join(HOME, 'ear')
+fs.mkdirSync(LOG_DIR, { recursive: true })
+fs.mkdirSync(EAR_DIR, { recursive: true })
 // A session sends a heartbeat every minute; one silent for three is gone
 const LANE_TTL_MS = 3 * 60 * 1000
 
@@ -62,6 +74,16 @@ function track(e) {
   else lanes.set(e.lane, { lane: e.lane, project: e.project, label: e.label, last: Date.now() })
 }
 
+const day = (d) => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0')
+
+// The last few minutes stay in memory (what was going on when you reacted); everything goes to the day's log
+const recent = []
+function logEvent(e) {
+  recent.push(e)
+  if (recent.length > 3000) recent.splice(0, recent.length - 3000)
+  fs.appendFile(path.join(LOG_DIR, day(new Date(e.ts)) + '.jsonl'), JSON.stringify(e) + '\n', () => {})
+}
+
 function broadcast(e) {
   const line = 'data: ' + JSON.stringify(e) + '\n\n'
   for (const res of listeners) res.write(line)
@@ -84,7 +106,7 @@ function page() {
     body + '</body></html>'
 }
 
-function readJson(req, res, then) {
+function readJson(req, res, then, max = MAX_BODY) {
   // A JSON content type keeps web pages from posting here without a CORS preflight, which we never answer
   if (!String(req.headers['content-type'] || '').startsWith('application/json')) {
     res.writeHead(415).end()
@@ -94,7 +116,7 @@ function readJson(req, res, then) {
   const chunks = []
   req.on('data', (c) => {
     size += c.length
-    if (size > MAX_BODY) { res.writeHead(413).end(); req.destroy() } else chunks.push(c)
+    if (size > max) { res.writeHead(413).end(); req.destroy() } else chunks.push(c)
   })
   req.on('end', () => {
     if (res.writableEnded) return
@@ -115,7 +137,7 @@ const SCLANG = process.env.UNDERTONE_SCLANG || [
   '/usr/bin/sclang', '/usr/local/bin/sclang',
 ].find((p) => fs.existsSync(p))
 
-const sc = { proc: null, ready: false, waiters: [], log: [], meter: { peak: 0, rmsSum: 0, n: 0 } }
+const sc = { proc: null, ready: false, waiters: [], log: [], meter: { peak: 0, rmsSum: 0, n: 0 }, dumps: new Map() }
 const udp = dgram.createSocket('udp4')
 
 function oscPad(buf) {
@@ -151,8 +173,32 @@ function oscFloats(buf) {
   return out
 }
 
+// An OSC message's arguments: ints, floats, doubles and strings
+function oscArgs(buf) {
+  let i = buf.indexOf(0)
+  i += 4 - (i % 4)
+  const tagEnd = buf.indexOf(0, i)
+  const tags = buf.toString('ascii', i + 1, tagEnd)
+  i = tagEnd + (4 - (tagEnd % 4))
+  const out = []
+  for (const t of tags) {
+    if (t === 'f') { out.push(buf.readFloatBE(i)); i += 4 }
+    else if (t === 'i') { out.push(buf.readInt32BE(i)); i += 4 }
+    else if (t === 'd') { out.push(buf.readDoubleBE(i)); i += 8 }
+    else if (t === 's') { const e = buf.indexOf(0, i); out.push(buf.toString('utf8', i, e)); i = e + (4 - (e % 4)) }
+    else break
+  }
+  return out
+}
+
 udp.on('message', (msg) => {
   const address = oscAddress(msg)
+  if (address === '/ut/dumped') {
+    const args = oscArgs(msg)
+    const done = sc.dumps.get(args[0])
+    if (done) { sc.dumps.delete(args[0]); done(args) }
+    return
+  }
   if (address === '/ut/peak') {
     const [pl, rl, pr, rr] = oscFloats(msg)
     sc.meter.peak = Math.max(sc.meter.peak, pl || 0, pr || 0)
@@ -194,6 +240,16 @@ function sendToSc(intents) {
     const m = i && typeof i === 'object' ? toOsc(i) : null
     if (m) udp.send(oscMessage(m[0], m[1]), SC_LANG_PORT, HOST)
   }
+}
+
+// SuperCollider keeps the last 30 seconds of its output in a ring buffer; this has it written to a
+// file and answers with where the ring's write head was, so the clip can be put back in order
+function dumpSc(file) {
+  return new Promise((resolve) => {
+    const t = setTimeout(() => { sc.dumps.delete(file); resolve(null) }, 8000)
+    sc.dumps.set(file, (args) => { clearTimeout(t); resolve(args) })
+    udp.send(oscMessage('/ut/dump', [file]), SC_LANG_PORT, HOST)
+  })
 }
 
 function waitForSc(ms) {
@@ -259,6 +315,57 @@ process.on('SIGINT', shutdown)
 process.on('SIGTERM', shutdown)
 process.on('exit', () => { if (sc.proc) sc.proc.kill() })
 
+// ---------------------------------------------------------------- ears
+
+const KINDS_EAR = ['love', 'grates', 'snapshot']
+
+// Saves a reaction or snapshot: the clip, a spectrogram, its numbers, what was playing and the
+// events around it. Gemini critiques it in the background when a key is set.
+async function saveEar(body) {
+  const kind = KINDS_EAR.includes(body.kind) ? body.kind : 'snapshot'
+  const state = body.state && typeof body.state === 'object' ? body.state : {}
+  const engine = clip(state.engine || 'unknown', 20).replace(/[^a-z0-9-]/gi, '')
+  const now = new Date()
+  const time = [now.getHours(), now.getMinutes(), now.getSeconds()].map((v) => String(v).padStart(2, '0')).join('')
+  const dir = path.join(EAR_DIR, day(now), time + '-' + engine + '-' + kind)
+  fs.mkdirSync(dir, { recursive: true })
+
+  let mono, sampleRate
+  if (body.wav) {
+    ({ mono, sampleRate } = parseWav(Buffer.from(String(body.wav), 'base64')))
+  } else if (engine === 'sc') {
+    if (!sc.ready) throw new Error('SuperCollider is not running')
+    const ringFile = path.join(dir, 'sc-ring.wav')
+    const reply = await dumpSc(ringFile)
+    if (!reply) throw new Error('SuperCollider did not hand over its recording')
+    const ring = parseWav(fs.readFileSync(ringFile))
+    fs.unlinkSync(ringFile)
+    const head = Math.max(0, Math.min(ring.mono.length, Math.round(reply[1])))
+    const ordered = new Float32Array(ring.mono.length)
+    ordered.set(ring.mono.subarray(head))
+    ordered.set(ring.mono.subarray(0, head), ring.mono.length - head)
+    const keep = Math.min(ordered.length, Math.round(ring.sampleRate * (kind === 'snapshot' ? 30 : 20)))
+    mono = ordered.subarray(ordered.length - keep)
+    sampleRate = ring.sampleRate
+  } else {
+    throw new Error('no audio came with the request')
+  }
+
+  const { stats, legend, png } = analyzeClip(mono, sampleRate)
+  const since = now.getTime() - (stats.seconds + 30) * 1000
+  fs.writeFileSync(path.join(dir, 'clip.wav'), writeWav(mono, sampleRate))
+  fs.writeFileSync(path.join(dir, 'spectrogram.png'), png)
+  fs.writeFileSync(path.join(dir, 'stats.json'), JSON.stringify(stats, null, 2))
+  fs.writeFileSync(path.join(dir, 'state.json'), JSON.stringify({ kind, note: clip(body.note, 500), at: now.toISOString(), state, legend }, null, 2))
+  fs.writeFileSync(path.join(dir, 'events.json'), JSON.stringify(recent.filter((e) => e.ts >= since && e.type !== 'alive'), null, 1))
+  fs.appendFileSync(path.join(EAR_DIR, 'index.jsonl'), JSON.stringify({
+    at: now.toISOString(), dir, kind, engine, mood: state.mood, rmsDb: stats.rmsDb, clicksPerMinute: stats.clicksPerMinute, centroidHz: stats.centroidHz,
+  }) + '\n')
+  const gemini = !!geminiKey()
+  if (gemini) critique(dir).catch((err) => fs.writeFileSync(path.join(dir, 'critique-error.txt'), String(err && err.message ? err.message : err)))
+  return { dir, stats, gemini }
+}
+
 // ---------------------------------------------------------------- HTTP
 
 const server = http.createServer((req, res) => {
@@ -297,7 +404,7 @@ const server = http.createServer((req, res) => {
   if (req.method === 'POST' && url.pathname === '/event') {
     readJson(req, res, (parsed) => {
       const events = (Array.isArray(parsed) ? parsed : [parsed]).map(clean).filter(Boolean)
-      for (const e of events) { track(e); broadcast(e) }
+      for (const e of events) { track(e); logEvent(e); broadcast(e) }
       res.writeHead(204).end()
     })
     return
@@ -308,6 +415,19 @@ const server = http.createServer((req, res) => {
       sendToSc(Array.isArray(parsed) ? parsed.slice(0, 200) : [parsed])
       res.writeHead(204).end()
     })
+    return
+  }
+
+  if (req.method === 'POST' && url.pathname === '/ear') {
+    readJson(req, res, (parsed) => {
+      saveEar(parsed).then((r) => {
+        res.writeHead(200, { 'content-type': 'application/json' })
+        res.end(JSON.stringify({ ok: true, ...r }))
+      }).catch((err) => {
+        res.writeHead(500, { 'content-type': 'application/json' })
+        res.end(JSON.stringify({ ok: false, error: String(err && err.message ? err.message : err) }))
+      })
+    }, MAX_EAR_BODY)
     return
   }
 

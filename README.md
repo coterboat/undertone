@@ -34,6 +34,43 @@ Pick one at the top of the page. The page conducts in every case (harmony, timin
 
 SuperCollider is started by the bridge (`sclang` running `sc/undertone.scd`) the first time you pick it. It boots on your default output device, using an output-only device for input as well, so it never asks macOS for the microphone. If you switch outputs (say, to headphones), stop the bridge and start it again so SuperCollider picks up the new device. Install it with `brew install --cask supercollider`.
 
+## Ears
+
+undertone can't be heard by Claude directly, so it keeps what you hear in a form Claude can read. On the local page, under the engine cards:
+
+| Button | Keeps |
+| :- | :- |
+| **Love this** | The last 20 seconds |
+| **This grates** | The last 20 seconds |
+| **Snapshot** | The last 30 seconds |
+
+Each one lands in `~/.undertone/ear/<date>/<time>-<engine>-<kind>/`:
+
+| File | What it is |
+| :- | :- |
+| `clip.wav` | The audio (SuperCollider keeps a rolling 30 seconds of its own output and hands it over) |
+| `spectrogram.png` | 30 Hz at the bottom to 16 kHz at the top; faint lines at 100 Hz, 1 kHz, 10 kHz and every 5 s; a loudness strip underneath with red ticks at clicks |
+| `stats.json` | RMS and peak, clipping, clicks per minute, energy per band (sub, bass, low-mid, mid, presence, air), brightness |
+| `state.json` | What was playing: engine, mood, key, chord, tempo, texture, every lane |
+| `events.json` | The session events around the clip |
+| `critique.md` | What Gemini heard, when a key is set (below) |
+
+`~/.undertone/ear/index.jsonl` lists every clip, so reactions can be compared over time. The analysis has no dependencies (`ear/analyze.mjs`).
+
+### Gemini as a second pair of ears
+
+With a Gemini API key, every clip is sent to Gemini, which writes `critique.md`: the vibe, each element, problems, and the three changes that would help most. Only the audio and musical facts go to Google, never project names. Get a key at [Google AI Studio](https://aistudio.google.com/apikey), copy it, and save it without pasting it anywhere else:
+
+```bash
+mkdir -p ~/.config/undertone && pbpaste > ~/.config/undertone/gemini.key && chmod 600 ~/.config/undertone/gemini.key
+```
+
+`GEMINI_API_KEY` works too. `UNDERTONE_GEMINI_MODEL` picks the model (default `gemini-flash-latest`). To critique an older clip: `node ear/gemini.mjs <clip folder>`.
+
+## Event log
+
+The bridge appends every event to `~/.undertone/log/<date>.jsonl`: session starts and heartbeats, prompts, turns, tool calls, commits, failing and passing checks, calls for you. It's the raw material for metrics such as time per project, time Claude spent waiting on you, and how long builds stayed broken.
+
 ## Projects
 
 The **Projects** panel lists every project with a running session or questions waiting on you. Untick one to silence it: its sessions stop playing, its broken builds and open questions drop out of the mix. The lead project sets the key and tempo; **Auto** follows the busiest project of the last three minutes and holds still when everything is quiet. Each project can keep its own mood (jobsnearme defaults to bright D major, ourPlace to a warm E♭, Iron Veil to D minor with war drums, wallstbets to A dorian with a ticking hat, anything else to F major). The page remembers your picks.
@@ -55,6 +92,7 @@ coter-kit's brain (open questions) ───────────────
 | `web/index.html` | The conductor and the score. The same file is published as a claude.ai artifact, where it runs the demo on the Synth engine. |
 | `web/engines/*.js` | The engines. Each takes the same calls (`pad`, `bass`, `voice`, `drum`, `bell`, `sour`, `drone`, `texture`, `energy`); `common.js` describes them. |
 | `sc/undertone.scd` | SuperCollider's synths, effects and OSC handlers. |
+| `ear/analyze.mjs`, `ear/gemini.mjs` | The ears: clip analysis and spectrograms, and Gemini's critique. |
 | `tests/undertone.test.ts` | Mod tests; run them with `claude plugin test .` |
 
 ## coter-kit

@@ -116,6 +116,12 @@ h1 .under { color: var(--muted); font-weight: 400; }
 .engine b small { font: 500 10px/1 var(--font-mono); text-transform: uppercase; letter-spacing: .1em; color: var(--muted); }
 .engine span { font-size: 12.5px; line-height: 1.4; color: var(--muted); }
 .engine-status { margin: 0; min-height: 1.4em; font: 12.5px/1.4 var(--font-mono); color: var(--muted); }
+.ears { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; font-size: 13px; color: var(--muted); }
+.ear { border: 1px solid var(--line); background: var(--panel); border-radius: 999px; padding: 6px 13px; cursor: pointer; font-size: 13px; color: var(--fg); transition: border-color .12s ease; }
+.ear:hover { border-color: var(--muted); }
+.ear.love { color: var(--pass); }
+.ear.grates { color: var(--fail); }
+.ear-status { font: 12px/1.4 var(--font-mono); color: var(--muted); overflow-wrap: anywhere; min-width: 0; }
 .engine-status.err { color: var(--fail); }
 
 /* score */
@@ -237,6 +243,13 @@ tr.attn td:first-child { color: var(--call); }
 
   <section class="engines" aria-label="Sound engine">
     <div id="engineRow" class="engine-row" role="radiogroup" aria-label="Sound engine"></div>
+    <div id="ears" class="ears" hidden>
+      Tell Claude
+      <button class="ear love" type="button" data-ear="love" title="Keeps the last 20 seconds and what was playing">Love this</button>
+      <button class="ear grates" type="button" data-ear="grates" title="Keeps the last 20 seconds and what was playing">This grates</button>
+      <button class="ear" type="button" data-ear="snapshot" title="Keeps the last 30 seconds">Snapshot</button>
+      <span id="earStatus" class="ear-status" aria-live="polite"></span>
+    </div>
     <p id="engineStatus" class="engine-status" aria-live="polite"></p>
   </section>
 
@@ -484,8 +497,9 @@ async function buildAudio() {
   T.swingSubdivision = '16n';
   new Tone.Loop((time) => tick(time), '16n').start(0);
 
-  S.audio = { T, ctx, engineOut, master, meter };
+  S.audio = { T, ctx, engineOut, master, meter, lim };
   window.undertone.audio = S.audio;
+  if (LIVE) startCapture();
   await startEngine(S.engineId);
 }
 
@@ -1114,6 +1128,91 @@ function setSource(text, live) {
   el.classList.toggle('live', !!live);
 }
 
+// ------------------------------------------------------------------ ears: what you were just hearing
+
+// The last 30 seconds of the master, always, so a reaction keeps exactly what you reacted to.
+// (SuperCollider plays outside the page; it keeps its own and the bridge asks it for that.)
+const CAPTURE_SECONDS = 30;
+function startCapture() {
+  const ctx = S.audio.ctx;
+  const size = Math.floor(ctx.sampleRate * CAPTURE_SECONDS);
+  const cap = { ring: new Float32Array(size), pos: 0, filled: 0, rate: ctx.sampleRate };
+  const node = ctx.createScriptProcessor(4096, 2, 1);
+  node.onaudioprocess = (ev) => {
+    const inb = ev.inputBuffer;
+    const L = inb.getChannelData(0), R = inb.numberOfChannels > 1 ? inb.getChannelData(1) : L;
+    for (let i = 0; i < L.length; i++) {
+      cap.ring[cap.pos] = (L[i] + R[i]) * 0.5;
+      cap.pos = cap.pos + 1 === size ? 0 : cap.pos + 1;
+    }
+    cap.filled = Math.min(size, cap.filled + L.length);
+  };
+  S.audio.lim.connect(node);
+  node.connect(ctx.destination);
+  S.audio.capture = cap;
+}
+
+function lastSeconds(sec) {
+  const cap = S.audio.capture;
+  const k = Math.min(cap.filled, Math.floor(cap.rate * sec));
+  const out = new Float32Array(k);
+  const start = (cap.pos - k + cap.ring.length) % cap.ring.length;
+  for (let i = 0; i < k; i++) out[i] = cap.ring[(start + i) % cap.ring.length];
+  return out;
+}
+
+function wavBase64(samples, rate) {
+  const buf = new ArrayBuffer(44 + samples.length * 2);
+  const v = new DataView(buf);
+  const w = (o, str) => { for (let i = 0; i < str.length; i++) v.setUint8(o + i, str.charCodeAt(i)); };
+  w(0, 'RIFF'); v.setUint32(4, 36 + samples.length * 2, true); w(8, 'WAVE'); w(12, 'fmt ');
+  v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true); v.setUint32(24, rate, true);
+  v.setUint32(28, rate * 2, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true); w(36, 'data'); v.setUint32(40, samples.length * 2, true);
+  for (let i = 0; i < samples.length; i++) v.setInt16(44 + i * 2, Math.max(-32768, Math.min(32767, Math.round(samples[i] * 32767))), true);
+  const bytes = new Uint8Array(buf);
+  let bin = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+  return btoa(bin);
+}
+
+// What was playing, so a clip can be matched to the settings that made it
+function earState() {
+  const { total } = waitingTotals();
+  const r2 = (x) => Math.round(x * 100) / 100;
+  return {
+    engine: S.engineId, mood: S.moodKey, moodName: mood().name, key: mood().label, bpm: mood().bpm, chord: S.chord.name,
+    lead: S.leadNow, texture: S.texture, volume: S.volume, drumLevel: r2(S.drumLevel), energy: r2(energy()), sour: S.sourOn, waiting: total,
+    lanes: [...lanes.values()].filter((l) => !l.ended).map((l) => ({
+      label: l.label, project: l.project, timbre: l.timbre, busy: l.busy, failing: l.failing, needs: l.needs, off: l.off, muted: l.muted, energy: r2(l.energy),
+    })),
+  };
+}
+
+const EAR_SAID = { love: 'Kept what you love: ', grates: 'Kept what grates: ', snapshot: 'Saved: ' };
+async function react(kind) {
+  const st = qs('#earStatus');
+  if (!S.audio || !S.playing) { st.textContent = 'Press Play first: there is nothing to keep yet.'; return; }
+  const body = { kind, state: earState() };
+  if (S.engineId !== 'sc') {
+    const clip = lastSeconds(kind === 'snapshot' ? 30 : 20);
+    if (clip.length < S.audio.capture.rate * 3) { st.textContent = 'Give it a few seconds of playing first.'; return; }
+    body.wav = wavBase64(clip, S.audio.capture.rate);
+  }
+  st.textContent = 'Saving';
+  try {
+    const r = await fetch('/ear', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+    const j = await r.json();
+    if (!j.ok) throw new Error(j.error || 'the bridge said no');
+    st.textContent = EAR_SAID[kind] + j.dir.split('/').slice(-2).join('/') + (j.gemini ? '. Gemini is listening.' : '.');
+  } catch (err) {
+    st.textContent = 'Could not save it: ' + (err && err.message ? err.message : err);
+  }
+}
+qs('#ears').addEventListener('click', (ev) => {
+  const b = ev.target.closest('[data-ear]');
+  if (b) react(b.dataset.ear);
+});
+
 // ------------------------------------------------------------------ transport
 
 async function play() {
@@ -1546,6 +1645,7 @@ window.undertone = { ingest: (e) => ingest(e, 'console'), state: S, lanes, proje
 
 renderEngines();
 if (LIVE) {
+  qs('#ears').hidden = false;
   setSource('Connecting', false);
   qs('#bridgeNote').innerHTML = 'Listening to the bridge on <code>' + esc(location.host) + '</code>. Sessions running the undertone mod show up as lanes; questions waiting on you come from coter-kit.';
   connect();
