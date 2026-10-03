@@ -110,3 +110,9 @@ test('check names read as words, and each kind of failure gets its own sour note
   assert.equal((sourFor('test', root) - root) % 12, 6, 'tests keep the tritone')
   assert.ok(sourFor('prod-errors', root) < 54, 'production errors rumble low')
 })
+
+test('a lane first heard from by a heartbeat or a failure starts idle, not working', () => {
+  assert.equal(lane(run([{ type: 'alive' }])).state, 'idle')
+  assert.equal(lane(run([{ type: 'fail', check: 'test' }])).state, 'idle')
+  assert.equal(lane(run([{ type: 'alive' }, { type: 'tool', tool: 'Read' }])).state, 'working')
+})

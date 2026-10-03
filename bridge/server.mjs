@@ -8,6 +8,7 @@
 //   POST /sc/start, /sc   start SuperCollider; notes for it, relayed to sclang over OSC
 //   POST /ear             a reaction or snapshot from the page, saved with its analysis (see ear/)
 //   POST /notify/test     a test ping to your phone (ntfy; ~/.config/undertone/ntfy.json)
+//   GET  /timesheet       the last 7 days (?days=N) per project, across every machine (bridge/timesheets.mjs)
 //
 // It answers only requests addressed to 127.0.0.1 or localhost on its own port (so a web page
 // can't reach it by DNS rebinding), and refuses posts from any other origin.
@@ -28,6 +29,7 @@ import { critique, geminiKey } from '../ear/gemini.mjs'
 import { emptyState, reduce, sweep, snapshot, LANE_TTL_MS, IDLE_MS } from '../lib/lanes.mjs'
 import { findSclang } from './sclang.mjs'
 import { prune } from './retention.mjs'
+import { writeSummaries, readWeek } from './timesheets.mjs'
 import { superviseSources } from './sources.mjs'
 
 const PORT = Number(process.argv[2] || process.env.UNDERTONE_PORT || 4747)
@@ -523,6 +525,13 @@ const server = http.createServer((req, res) => {
     return
   }
 
+  if (req.method === 'GET' && url.pathname === '/timesheet') {
+    const days = Math.max(1, Math.min(31, Number(url.searchParams.get('days')) || 7))
+    res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' })
+    res.end(JSON.stringify(readWeek({ logDir: LOG_DIR, days })))
+    return
+  }
+
   if (req.method === 'GET' && url.pathname === '/state') {
     res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' })
     res.end(JSON.stringify(snapshot(state, Date.now())))
@@ -628,6 +637,10 @@ server.listen(PORT, HOST, () => {
   replay()
   pruneOld()
   setInterval(pruneOld, 86_400_000).unref()
+  // This machine's daily summaries into the brain, for timesheets across machines
+  const summarize = () => { try { writeSummaries({ logDir: LOG_DIR }) } catch (err) { console.error('undertone: summaries: ' + err.message) } }
+  summarize()
+  setInterval(summarize, Number(process.env.UNDERTONE_SUMMARY_EVERY_MS) || 30 * 60_000).unref()
   if (process.env.UNDERTONE_SOURCES !== '0') {
     sources = superviseSources({ script: path.join(ROOT, 'sources', 'azure-metrics.mjs'), config: SOURCES_CONFIG, port: PORT })
   }

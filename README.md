@@ -115,6 +115,26 @@ Anything can post events to the bridge. An outside source marks its events with 
 
 `state` is `working`, `needs_ok` (a permission prompt), `your_move` (a turn ended, or Claude sat idle: `needsReason` says which) or `idle` (no work for 15 minutes). A session silent for three minutes is gone. The same picture comes first on `/events`, so a reloaded page keeps pending calls and broken builds, and the bridge rebuilds it from the logs when it restarts. The logic lives in `lib/lanes.mjs`, shared by the bridge and the page.
 
+## Timesheets
+
+```bash
+npm run week
+```
+
+The last 7 days (`npm run week 14` for more, `--json` for the numbers) per project, across every machine that syncs coter-kit's brain:
+
+| Column | What it is |
+| :- | :- |
+| per day, total | Hours Claude worked on the project (wall clock: parallel sessions count once) |
+| parallel | The same hours summed over sessions: three lanes for an hour is 3 |
+| blocked | Time sessions sat on a permission prompt, each wait counted up to an hour |
+| broken | Time a check (tests, typecheck, lint, build) stayed failing |
+| commits | Commits made |
+
+Outside sources get their own line: their totals (chats, requests) and how long their errors lasted.
+
+Each machine's bridge boils its own log down to a small summary per day (`lib/summary.mjs`, a few hundred bytes) and writes it into the brain at `undertone/<device>/<date>.json` every 30 minutes; coter-kit's next sync carries it to your other machines. Raw logs never leave the machine. `GET /timesheet?days=7` serves the same numbers as JSON for a dashboard. The summary is shaped like a database row, so a real database can take over the day home needs queries over months.
+
 ## Event log
 
 The bridge appends every event to `~/.undertone/log/<date>.jsonl`: session starts and heartbeats, prompts, turns, tool calls, commits, failing and passing checks by name, calls for you. It's the raw material for metrics such as time per project, time Claude spent waiting on you, and how long builds stayed broken.
@@ -141,6 +161,7 @@ coter-kit's brain (open questions) ───────────────
 | `hooks/commands.js` | Reads a Bash command for commits, pushes and which checks ran, and whether its exit code is theirs (not through `\| tail`, `\|\| true`, `;` or `&`). |
 | `hooks/waiting.js` | Counts coter-kit's open questions per project, each question once. |
 | `lib/lanes.mjs` | Every session's state, shared by the bridge and the page. |
+| `lib/summary.mjs`, `bridge/timesheets.mjs` | A day of events boiled down to a summary; summaries written to and read from the brain. |
 | `bridge/server.mjs` | A zero-dependency Node server on 127.0.0.1. It serves the page and `/state`, relays events over server-sent events, pings your phone, and talks OSC to SuperCollider. |
 | `web/index.html` | The conductor and the score. The same file is published as a claude.ai artifact, where it runs the demo on the Synth engine. |
 | `web/engines/*.js` | The engines. Each takes the same calls (`pad`, `bass`, `voice`, `drum`, `bell`, `sour`, `drone`, `texture`, `energy`); `common.js` describes them. |
@@ -168,6 +189,7 @@ What leaves the machine:
 | To | What | When |
 | :- | :- | :- |
 | Your ntfy server (ntfy.sh by default) | A ping's title (per `names`), a fixed message, priority and tag | A session waits on you (see Your phone) |
+| Your brain repo (coter-kit's, private on GitHub) | Each day's summary per project: minutes worked, blocked and broken, counts of sessions, turns, commits and pushes, first and last time of work; outside sources' totals | Written every 30 minutes, carried by coter-kit's sync |
 | Google (Gemini) | A clip's audio, engine, mood, key, tempo, texture level, reaction kind; its note only with `UNDERTONE_GEMINI_NOTE=1` | You press Love this, This grates or Snapshot, with a Gemini key set |
 | Nowhere else | Outside sources run locally: Azure is read through your own `az` CLI, and only counts reach the bridge | |
 
@@ -197,6 +219,7 @@ The bridge reads these from its environment:
 | :- | :- |
 | `UNDERTONE_PORT` | The port, when not given as an argument |
 | `UNDERTONE_HOME` | Where logs and clips go (default `~/.undertone`) |
+| `UNDERTONE_BRAIN_DIR` | coter-kit's brain, where daily summaries go (default `~/.claude/coter-brain`) |
 | `UNDERTONE_EAR_DAYS`, `UNDERTONE_LOG_DAYS` | Delete clips and logs older than this (default 0: keep) |
 | `UNDERTONE_NTFY_TOKEN` | An ntfy access token |
 | `UNDERTONE_SCLANG` | Where SuperCollider's `sclang` is |

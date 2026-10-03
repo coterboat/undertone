@@ -129,8 +129,9 @@ async function runSource(name, cfg) {
 
 // Plausible traffic for a site with a chatbot: a few chats a minute that drift up and down, and
 // every so often a burst of errors that clears a little later. Ten-second "minutes", to hear it fast.
+// Under its own name (`<name>-mock`), so made-up traffic never mixes with the real lane's numbers
 async function runMock(name) {
-  const lane = laneOf(name, { label: name + ' (mock)' })
+  const lane = laneOf(name + '-mock', { label: name + ' (mock)' })
   const check = 'prod-errors:Http5xx'
   await postToBridge([{ type: 'session.start', ...lane }])
   setInterval(() => postToBridge([{ type: 'alive', ...lane }]), 60_000)

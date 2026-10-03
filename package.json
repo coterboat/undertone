@@ -1,6 +1,6 @@
 {
   "name": "undertone",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "private": true,
   "description": "Your Claude Code sessions, played as music",
   "type": "module",
@@ -8,7 +8,8 @@
     "start": "node bridge/server.mjs",
     "sources": "node sources/azure-metrics.mjs",
     "sources:mock": "node sources/azure-metrics.mjs --mock ourplace",
-    "test": "node --test \"tests/unit/*.test.mjs\" \"tests/bridge/*.test.mjs\""
+    "test": "node --test \"tests/unit/*.test.mjs\" \"tests/bridge/*.test.mjs\"",
+    "week": "node bridge/week.mjs"
   },
   "engines": {
     "node": ">=18"
