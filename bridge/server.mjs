@@ -8,6 +8,7 @@
 //   POST /sc/start, /sc   start SuperCollider; notes for it, relayed to sclang over OSC
 //   POST /ear             a reaction or snapshot from the page, saved with its analysis (see ear/)
 //   POST /notify/test     a test ping to your phone (ntfy; ~/.config/undertone/ntfy.json)
+//   POST /shutdown        leave now; { "sticky": true } also keeps auto-starts away until a deliberate start
 //   GET  /timesheet       the last 7 days (?days=N) per project, across every machine (bridge/timesheets.mjs)
 //
 // It answers only requests addressed to 127.0.0.1 or localhost on its own port (so a web page
@@ -32,7 +33,11 @@ import { prune } from './retention.mjs'
 import { writeSummaries, readWeek } from './timesheets.mjs'
 import { superviseSources } from './sources.mjs'
 
-const PORT = Number(process.argv[2] || process.env.UNDERTONE_PORT || 4747)
+const PORT = Number(process.argv.slice(2).find((a) => /^\d+$/.test(a)) || process.env.UNDERTONE_PORT || 4747)
+// Started by the mod on its own (--auto): it leaves after a quiet hour, and a deliberate stop
+// (/undertone stop) keeps it from coming back until /undertone or npm start (--resume, or by hand)
+const AUTO = process.argv.includes('--auto')
+const RESUME = process.argv.includes('--resume') || !AUTO
 const HOST = '127.0.0.1'
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const PAGE = path.join(ROOT, 'web', 'index.html')
@@ -413,6 +418,26 @@ const SOURCES_CONFIG = process.env.UNDERTONE_SOURCES_CONFIG || path.join(os.home
 let sources = null
 
 const shutdown = () => Promise.all([stopSc(), sources?.stop()]).then(() => process.exit(0))
+
+// ---------------------------------------------------------------- lifetime
+
+// A bridge the mod started on its own leaves after a quiet hour: no Claude Code session, no page
+// listening, and no outside source to record (on a machine with sources it stays, so overnight
+// traffic still reaches the timesheet). One started by hand stays until it's stopped.
+// UNDERTONE_IDLE_EXIT_MIN overrides either way (0: never).
+const IDLE_EXIT_MS = (Number(process.env.UNDERTONE_IDLE_EXIT_MIN ?? (AUTO ? 60 : 0)) || 0) * 60_000
+const STOPPED_FILE = path.join(HOME, 'stopped')
+const quietSpell = IDLE_EXIT_MS >= 60_000 ? Math.round(IDLE_EXIT_MS / 60_000) + ' min' : Math.round(IDLE_EXIT_MS / 1000) + ' s'
+let quietSince = Date.now()
+const busy = () => Object.values(state.lanes).some((l) => !l.external) || listeners.size > 0 || !!(sources && sources.status().configured)
+if (IDLE_EXIT_MS > 0) {
+  setInterval(() => {
+    if (busy()) { quietSince = Date.now(); return }
+    if (Date.now() - quietSince < IDLE_EXIT_MS) return
+    console.log(new Date().toISOString() + ' undertone: quiet for ' + quietSpell + '; leaving')
+    shutdown()
+  }, Math.max(250, Math.min(60_000, IDLE_EXIT_MS / 4))).unref()
+}
 process.on('SIGINT', shutdown)
 process.on('SIGTERM', shutdown)
 process.on('exit', () => { if (sc.proc) sc.proc.kill(); sources?.kill() })
@@ -580,6 +605,16 @@ const server = http.createServer((req, res) => {
     return
   }
 
+  if (req.method === 'POST' && url.pathname === '/shutdown') {
+    readJson(req, res, (body) => {
+      if (body && body.sticky) { try { fs.writeFileSync(STOPPED_FILE, new Date().toISOString() + '\n') } catch {} }
+      res.writeHead(202, { 'content-type': 'application/json' })
+      res.end(JSON.stringify({ ok: true, sticky: !!(body && body.sticky) }))
+      setTimeout(shutdown, 50)
+    })
+    return
+  }
+
   if (req.method === 'POST' && url.pathname === '/sc/start') {
     startSc().then((r) => {
       res.writeHead(r.ok ? 200 : 503, { 'content-type': 'application/json' })
@@ -611,6 +646,7 @@ const server = http.createServer((req, res) => {
       notify: { configured: n.configured, ok: n.ok, reason: n.reason, sent: phone.sent, dropped: phone.dropped },
       sc: { installed: !!SCLANG, running: !!sc.proc, ready: sc.ready },
       sources: sources ? sources.status() : { off: true },
+      lifetime: { auto: AUTO, idleExitMin: IDLE_EXIT_MS / 60_000, quietForSec: busy() ? 0 : Math.round((Date.now() - quietSince) / 1000) },
     }))
     return
   }
@@ -633,6 +669,15 @@ server.on('error', async (err) => {
   process.exit(1)
 })
 
+// A deliberate stop holds against auto-starts; a deliberate start lifts it
+if (fs.existsSync(STOPPED_FILE)) {
+  if (!RESUME) {
+    console.log('undertone: stopped with /undertone stop; /undertone or npm start brings it back')
+    process.exit(0)
+  }
+  fs.rmSync(STOPPED_FILE, { force: true })
+}
+
 server.listen(PORT, HOST, () => {
   replay()
   pruneOld()
@@ -644,5 +689,5 @@ server.listen(PORT, HOST, () => {
   if (process.env.UNDERTONE_SOURCES !== '0') {
     sources = superviseSources({ script: path.join(ROOT, 'sources', 'azure-metrics.mjs'), config: SOURCES_CONFIG, port: PORT })
   }
-  console.log('undertone bridge on http://' + HOST + ':' + PORT)
+  console.log('undertone bridge on http://' + HOST + ':' + PORT + (AUTO ? ' (started on its own; ' + (IDLE_EXIT_MS ? 'leaves after a quiet ' + quietSpell : 'never leaves on its own') + ')' : ''))
 })

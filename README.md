@@ -12,7 +12,7 @@ What's built, what's next and what waits on purpose: [docs/roadmap.md](docs/road
 npm start
 ```
 
-Then open http://127.0.0.1:4747 and press Play. From inside Claude Code, `/undertone` does the same thing: it starts the bridge if it isn't running and opens the page.
+Then open http://127.0.0.1:4747 and press Play. With the plugin installed you don't need the terminal: the first Claude Code session starts the bridge in the background and it leaves after a quiet hour, so there's no window to keep open. `/undertone` opens the page (and starts the bridge if it isn't running).
 
 ## What needs you, by ear
 
@@ -163,6 +163,7 @@ coter-kit's brain (open questions) ───────────────
 | `lib/lanes.mjs` | Every session's state, shared by the bridge and the page. |
 | `lib/summary.mjs`, `bridge/timesheets.mjs` | A day of events boiled down to a summary; summaries written to and read from the brain. |
 | `bridge/server.mjs` | A zero-dependency Node server on 127.0.0.1. It serves the page and `/state`, relays events over server-sent events, pings your phone, and talks OSC to SuperCollider. |
+| `bridge/launch.mjs` | Starts the bridge detached, the same way on macOS and Windows. |
 | `web/index.html` | The conductor and the score. The same file is published as a claude.ai artifact, where it runs the demo on the Synth engine. |
 | `web/engines/*.js` | The engines. Each takes the same calls (`pad`, `bass`, `voice`, `drum`, `bell`, `sour`, `drone`, `texture`, `energy`); `common.js` describes them. |
 | `sc/undertone.scd` | SuperCollider's synths, effects and OSC handlers. |
@@ -202,9 +203,9 @@ The bridge listens on 127.0.0.1 only and answers only requests addressed to `127
 | `/undertone` | Start the bridge if needed and open the page |
 | `/undertone status` | Is the bridge up, and is this session sending |
 | `/undertone off`, `/undertone on` | Stop or resume sending this session's events |
-| `/undertone stop` | Stop the bridge if this session started it, and stop restarting it |
+| `/undertone stop` | Stop the bridge; no session starts it again until `/undertone` or `npm start` |
 
-A bridge started by `/undertone` lives as long as that session. If a bridge this session saw in the last half hour stops answering, the session starts it again (at most once a minute) and keeps up to 500 events or 5 minutes of them to send once it's back; with no bridge ever seen, it never starts one. Phone pings stop while no bridge runs. For a bridge independent of any session, run `npm start` in a terminal (or from a login agent).
+The bridge is simply there. The first session starts it (`bridge/launch.mjs`) detached, so it belongs to no session and no window, with its output in `~/.undertone/bridge.log`. It leaves after an hour with no Claude Code session, no page open and no outside source to record (so on a machine with sources it stays up, and overnight traffic still reaches the timesheet); the next session starts it again. While no bridge answers, a session keeps up to 500 events or 5 minutes of them and tries to start one at most once a minute. `/undertone stop` stops it on purpose: a marker (`~/.undertone/stopped`) keeps sessions from starting it until `/undertone` or `npm start`. A bridge you start yourself with `npm start` never leaves on its own. Set `bridge` to `manual` and sessions never start it. Phone pings stop while no bridge runs.
 
 ## Settings
 
@@ -212,6 +213,7 @@ A bridge started by `/undertone` lives as long as that session. If a bridge this
 | :- | :- | :- |
 | `port` | 4747 | The bridge's port on 127.0.0.1 |
 | `brainDir` | `~/.claude/coter-brain` | Where coter-kit's brain lives |
+| `bridge` | `auto` | `auto`: the first session starts the bridge; `manual`: only `/undertone` or `npm start` does |
 
 The bridge reads these from its environment:
 
@@ -219,6 +221,7 @@ The bridge reads these from its environment:
 | :- | :- |
 | `UNDERTONE_PORT` | The port, when not given as an argument |
 | `UNDERTONE_HOME` | Where logs and clips go (default `~/.undertone`) |
+| `UNDERTONE_IDLE_EXIT_MIN` | Quiet minutes before the bridge leaves (default 60 when a session started it, 0 (never) when you did) |
 | `UNDERTONE_BRAIN_DIR` | coter-kit's brain, where daily summaries go (default `~/.claude/coter-brain`) |
 | `UNDERTONE_EAR_DAYS`, `UNDERTONE_LOG_DAYS` | Delete clips and logs older than this (default 0: keep) |
 | `UNDERTONE_NTFY_TOKEN` | An ntfy access token |

@@ -1,23 +1,26 @@
 import { expect, mock, test } from 'claude-code/testing'
 
-type Opts = { root?: string; up?: boolean; stopBlocks?: () => boolean; brain?: Record<string, string>; git?: string }
+type Opts = { root?: string; up?: boolean; stopBlocks?: () => boolean; brain?: Record<string, string>; git?: string; stopped?: boolean; os?: string; oldBridge?: boolean }
+const MANUAL = { options: { bridge: 'manual' } }
 
 // Stubs for everything undertone asks Claude Code for. The bridge is a flag: `up`
-// answers /health, and every POST to /event is recorded as the batch it carried.
+// answers /health, and every POST to /event is recorded as the batch it carried. Starting it
+// (node bridge/launch.mjs) is recorded in `spawned`; `stopped` is the /undertone stop marker.
 function stubAll(on: any, opts: Opts = {}) {
   const posted: any[] = []
   const ran: string[][] = []
   const spawned: string[][] = []
-  const state = { up: opts.up ?? true, fetches: 0, sessionId: 'a1b2c3d4-e5f6', registered: 0, brainReads: 0 }
+  const state = { up: opts.up ?? true, fetches: 0, sessionId: 'a1b2c3d4-e5f6', registered: 0, brainReads: 0, stopped: opts.stopped ?? false, shutdowns: [] as any[] }
   const clock = mock.clock(on, { now: Date.now() })
 
-  on('env.get', ($: any, e: any) => ({ value: e.name === 'HOME' ? '/home/me' : undefined }))
+  on('env.get', ($: any, e: any) => ({ value: e.name === 'HOME' ? '/home/me' : e.name === 'OS' ? opts.os : undefined }))
   // coter-kit's brain, as journal files under /home/me/.claude/coter-brain/journal/<device>/
   const brain = opts.brain ?? {}
   const JOURNAL = '/home/me/.claude/coter-brain/journal'
   on('fs.list', ($: any, e: any) => {
     const dir = String(e.path).replace(/\\/g, '/').replace(/\/$/, '')
     if (dir === JOURNAL) state.brainReads += 1
+    if (dir === '/home/me/.undertone') return { value: state.stopped ? [{ name: 'stopped', kind: 'file', size: 25, mtimeMs: 0, isLink: false }] : [] }
     const kids = new Map<string, string>()
     for (const file of Object.keys(brain)) {
       const full = JOURNAL + '/' + file
@@ -42,19 +45,33 @@ function stubAll(on: any, opts: Opts = {}) {
     if (!state.up) return { deny: 'connect ECONNREFUSED 127.0.0.1:4747' }
     if (e.url.endsWith('/health')) return { value: { status: 200, ok: true, headers: {}, text: '{"ok":true,"name":"undertone"}' } }
     if (e.url.endsWith('/event')) posted.push(...JSON.parse(e.init.body))
+    // A bridge from before 0.6 has no /shutdown
+    if (e.url.endsWith('/shutdown') && opts.oldBridge) return { value: { status: 404, ok: false, headers: {}, text: 'not found' } }
+    if (e.url.endsWith('/shutdown')) {
+      state.shutdowns.push(JSON.parse(e.init.body))
+      state.up = false
+      if (JSON.parse(e.init.body).sticky) state.stopped = true
+      return { value: { status: 202, ok: true, headers: {}, text: '{"ok":true}' } }
+    }
     return { value: { status: 204, ok: true, headers: {}, text: '' } }
   })
   on('process.run', ($: any, e: any) => {
     ran.push([...e.argv])
     // `git rev-parse --show-toplevel --git-common-dir`: opts.git is its output; otherwise not a repo
     if (e.argv[0] === 'git' && e.argv[1] === 'rev-parse') return { value: opts.git ? { exitCode: 0, stdout: opts.git, stderr: '' } : { exitCode: 128, stdout: '', stderr: 'not a git repository' } }
+    // The launcher: the bridge comes up unless it was stopped on purpose and this isn't --resume
+    if (e.argv[0] === 'node' && /\/bridge\/launch\.mjs$/.test(String(e.argv[1]).replace(/\\/g, '/'))) {
+      spawned.push([...e.argv])
+      if (e.argv.includes('--resume')) state.stopped = false
+      if (!state.stopped) state.up = true
+      return { value: { exitCode: 0, stdout: '{"ok":true}', stderr: '' } }
+    }
     return { value: { exitCode: 0, stdout: '', stderr: '' } }
   })
+  // The bridge never runs as a child of the session any more
   on('process.spawn', async function* ($: any, e: any) {
-    spawned.push([...e.argv])
-    state.up = true
-    yield { stream: 'stdout', text: 'undertone bridge on http://127.0.0.1:4747' }
-    return { code: 0, signal: null }
+    spawned.push(['spawn', ...e.argv])
+    return { code: 1, signal: null }
   })
   on('classic.Stop', () => (opts.stopBlocks && opts.stopBlocks() ? { block: 'Automatic checks failed' } : {}))
   on('classic.Notification', () => ({}))
@@ -133,16 +150,17 @@ test("coter-kit's checks blocking a stop break the build; the next clean stop fi
   expect(posted.filter((e) => e.type === 'fail' || e.type === 'pass').map((e) => [e.type, e.source])).toEqual([['fail', 'checks'], ['pass', 'checks']])
 })
 
-test('/undertone starts the bridge when it is down, then opens the page', async ($: any, on: any) => {
-  const { spawned, ran, clock, posted } = stubAll(on, { up: false })
+test('/undertone starts the bridge when it is down, detached and lifting a stop, then opens the page', MANUAL, async ($: any, on: any) => {
+  const { spawned, ran, clock, posted } = stubAll(on, { up: false, stopped: true })
   await start($, clock)
+  expect(spawned).toHaveLength(0)
   const pending = $.command.run({ command: 'undertone', args: '' })
   await clock.advance(400)
   const out: any = await pending
   expect(spawned).toHaveLength(1)
   expect(spawned[0][0]).toBe('node')
-  expect(spawned[0][1].replace(/\\/g, '/')).toMatch(/\/bridge\/server\.mjs$/)
-  expect(spawned[0][2]).toBe('4747')
+  expect(spawned[0][1].replace(/\\/g, '/')).toMatch(/\/bridge\/launch\.mjs$/)
+  expect(spawned[0].slice(2)).toEqual(['4747', '--auto', '--resume'])
   expect(ran).toContainEqual(['open', 'http://127.0.0.1:4747/'])
   expect(out.text).toContain('running at http://127.0.0.1:4747')
   await clock.advance(200)
@@ -170,7 +188,7 @@ test('/undertone off stops sending until /undertone on', async ($: any, on: any)
   expect(types(posted).slice(2)).toEqual(['session.start', 'tool'])
 })
 
-test('with no bridge ever seen, events wait, it retries every 15 seconds, and it never starts one', async ($: any, on: any) => {
+test('with the bridge set to manual and none seen, events wait, it retries every 15 seconds, and it never starts one', MANUAL, async ($: any, on: any) => {
   // Changed in 0.3: events are kept (500, 5 minutes) instead of dropped, and resent in order
   const { state, clock, spawned, posted } = stubAll(on, { up: false })
   await start($, clock)
@@ -300,14 +318,76 @@ test('a bridge that was running is started again once when it stops answering, a
   expect(posted.filter((e) => e.type === 'tool').map((e) => e.tool)).toEqual(['Read', 'Read', 'Edit'])
 })
 
-test('after /undertone stop, a bridge that stops answering is left alone', async ($: any, on: any) => {
+test('/undertone stop shuts the bridge down for good: no session starts it again until /undertone', async ($: any, on: any) => {
   const { clock, spawned, state } = stubAll(on, { up: true })
   await start($, clock)
-  await $.command.run({ command: 'undertone', args: 'stop' })
-  state.up = false
+  const out: any = await $.command.run({ command: 'undertone', args: 'stop' })
+  expect(state.shutdowns).toEqual([{ sticky: true }])
+  expect(state.up).toBe(false)
+  expect(out.text).toContain('bridge stopped')
   await $.tool.call({ tool: 'Read', file_path: '/a' })
   await clock.advance(5_000)
   expect(spawned).toHaveLength(0)
+})
+
+test('/undertone stop on a bridge older than 0.6 says it did not stop, instead of claiming it did', async ($: any, on: any) => {
+  const { clock, state } = stubAll(on, { up: true, oldBridge: true })
+  await start($, clock)
+  const out: any = await $.command.run({ command: 'undertone', args: 'stop' })
+  expect(out.text).toContain('did not stop')
+  expect(state.up).toBe(true)
+})
+
+test('a new session leaves a bridge stopped on purpose alone, and /undertone brings it back', async ($: any, on: any) => {
+  const { clock, spawned, state, posted } = stubAll(on, { up: false, stopped: true })
+  await start($, clock)
+  await clock.advance(3_500)
+  for (let i = 0; i < 3; i++) {
+    await $.tool.call({ tool: 'Read', file_path: '/a' })
+    await clock.advance(61_000)
+  }
+  expect(spawned).toHaveLength(0)
+  const pending = $.command.run({ command: 'undertone', args: '' })
+  await clock.advance(400)
+  await pending
+  expect(spawned).toHaveLength(1)
+  expect(state.stopped).toBe(false)
+  await clock.advance(200)
+  expect(types(posted).filter((t) => t === 'tool')).toHaveLength(3)
+})
+
+test('the first session starts the bridge on its own, detached, and what it said first arrives', async ($: any, on: any) => {
+  const { clock, spawned, posted } = stubAll(on, { up: false })
+  await start($, clock)
+  await clock.advance(3_500)
+  expect(spawned).toHaveLength(1)
+  expect(spawned[0].slice(2)).toEqual(['4747', '--auto'])
+  await clock.advance(200)
+  expect(types(posted)[0]).toBe('session.start')
+  // A second session start (resume, clear) with the bridge up starts nothing
+  await start($, clock)
+  await clock.advance(3_500)
+  expect(spawned).toHaveLength(1)
+})
+
+test('on Windows the same launcher starts it, with no shell or PowerShell in between', async ($: any, on: any) => {
+  const { clock, spawned } = stubAll(on, { up: false, os: 'Windows_NT' })
+  await start($, clock)
+  await clock.advance(3_500)
+  expect(spawned).toHaveLength(1)
+  expect(spawned[0][0]).toBe('node')
+  expect(spawned[0][1].replace(/\\/g, '/')).toMatch(/\/bridge\/launch\.mjs$/)
+})
+
+test('with the bridge set to manual, sessions never start it', MANUAL, async ($: any, on: any) => {
+  const { clock, spawned, state } = stubAll(on, { up: false })
+  await start($, clock)
+  for (let i = 0; i < 3; i++) {
+    await $.tool.call({ tool: 'Read', file_path: '/a' })
+    await clock.advance(61_000)
+  }
+  expect(spawned).toHaveLength(0)
+  expect(state.fetches).toBeGreaterThan(0)
 })
 
 test('a sibling git worktree plays as its main checkout · the worktree folder', async ($: any, on: any) => {

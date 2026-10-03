@@ -1,7 +1,7 @@
 // The bridge, run for real: each test starts it on a free port with HOME and UNDERTONE_HOME in a
 // temp folder, and points phone pings at a fake ntfy server on localhost.
 
-import { test } from 'node:test'
+import { test, after } from 'node:test'
 import assert from 'node:assert/strict'
 import http from 'node:http'
 import net from 'node:net'
@@ -49,14 +49,23 @@ function raw(port, method, p, { host, headers = {}, body } = {}) {
   })
 }
 
-async function bridge({ home = tmpHome(), env = {} } = {}) {
-  const port = await freePort()
-  const child = spawn(process.execPath, [path.join(ROOT, 'bridge', 'server.mjs'), String(port)], {
-    env: { ...process.env, HOME: home, USERPROFILE: home, UNDERTONE_HOME: path.join(home, '.undertone'), UNDERTONE_SOURCES_CONFIG: path.join(home, '.config', 'undertone', 'sources.json'), UNDERTONE_SC_REPLY_PORT: '0', UNDERTONE_SCLANG: path.join(home, 'no-sclang'), GEMINI_API_KEY: '', UNDERTONE_NTFY_TOKEN: '', ...env },
+// Every bridge a test starts goes when the file is done, even after a failed assertion
+const children = new Set()
+after(() => { for (const c of children) try { c.kill('SIGKILL') } catch {} })
+
+const envFor = (home, env) => ({ ...process.env, HOME: home, USERPROFILE: home, UNDERTONE_HOME: path.join(home, '.undertone'), UNDERTONE_SOURCES_CONFIG: path.join(home, '.config', 'undertone', 'sources.json'), UNDERTONE_SC_REPLY_PORT: '0', UNDERTONE_SCLANG: path.join(home, 'no-sclang'), GEMINI_API_KEY: '', UNDERTONE_NTFY_TOKEN: '', ...env })
+
+async function bridge({ home = tmpHome(), env = {}, args = [], port: fixed } = {}) {
+  const port = fixed || (await freePort())
+  const child = spawn(process.execPath, [path.join(ROOT, 'bridge', 'server.mjs'), String(port), ...args], {
+    env: envFor(home, env),
     stdio: 'ignore',
   })
+  children.add(child)
+  let exitCode = null
+  const exited = new Promise((r) => child.once('exit', (code) => { exitCode = code; r(code) }))
   const url = 'http://127.0.0.1:' + port
-  for (let i = 0; i < 100; i++) {
+  for (let i = 0; i < 100 && exitCode === null; i++) {
     try { if ((await fetch(url + '/health')).ok) break } catch {}
     await sleep(50)
   }
@@ -66,9 +75,12 @@ async function bridge({ home = tmpHome(), env = {} } = {}) {
     post: (events) => fetch(url + '/event', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(events) }),
     state: () => fetch(url + '/state').then(json),
     health: () => fetch(url + '/health').then(json),
-    stop: () => new Promise((r) => { child.once('exit', r); child.kill('SIGTERM') }),
+    exited, running: () => exitCode === null,
+    stop: () => { if (exitCode === null) child.kill('SIGTERM'); return exited },
   }
 }
+const shutdown = (port, body = '{}') => raw(port, 'POST', '/shutdown', { headers: { 'content-type': 'application/json' }, body })
+const within = (p, ms) => Promise.race([p, sleep(ms).then(() => 'still running')])
 
 const lane = (id, extra = {}) => ({ lane: id, project: 'jobsnearme', label: 'jobsnearme · lane-2', ...extra })
 const listFiles = (dir) => { try { return fs.readdirSync(dir) } catch { return [] } }
@@ -235,4 +247,66 @@ test('a reaction with audio that is not a WAV is refused and leaves no folder be
   }
   assert.deepEqual(listFiles(path.join(home, '.undertone', 'ear')).filter((n) => !n.startsWith('.')), [])
   await b.stop()
+})
+
+test('a bridge started on its own leaves after a quiet spell; a Claude session keeps it, an outside source alone does not', async () => {
+  const b = await bridge({ args: ['--auto'], env: { UNDERTONE_IDLE_EXIT_MIN: '0.01' } })
+  assert.deepEqual((await b.health()).lifetime.auto, true)
+  await b.post([{ type: 'session.start', ...lane('aaaa0001') }, { type: 'pulse', count: 2, lane: 'src-x', project: 'x', origin: 'azure' }])
+  assert.equal(await within(b.exited, 1500), 'still running', 'a Claude session keeps it')
+  await b.post([{ type: 'session.end', ...lane('aaaa0001') }])
+  assert.equal(await within(b.exited, 3000), 0, 'quiet once only the outside source is left')
+})
+
+test('a bridge started by hand never leaves on its own', async () => {
+  const b = await bridge({ env: { UNDERTONE_IDLE_EXIT_MIN: undefined } })
+  const h = await b.health()
+  assert.deepEqual([h.lifetime.auto, h.lifetime.idleExitMin], [false, 0])
+  assert.equal(await within(b.exited, 800), 'still running')
+  await b.stop()
+})
+
+test('/shutdown sticky keeps auto-starts away until a deliberate start lifts it', async () => {
+  const home = tmpHome()
+  const first = await bridge({ home })
+  assert.equal((await shutdown(first.port, '{"sticky":true}')).status, 202)
+  assert.equal(await within(first.exited, 3000), 0)
+  assert.ok(fs.existsSync(path.join(home, '.undertone', 'stopped')))
+
+  const auto = await bridge({ home, args: ['--auto'] })
+  assert.equal(await within(auto.exited, 3000), 0, 'an auto-start leaves at once')
+  assert.ok(fs.existsSync(path.join(home, '.undertone', 'stopped')))
+
+  const resumed = await bridge({ home, args: ['--auto', '--resume'] })
+  assert.equal((await resumed.health()).ok, true)
+  assert.ok(!fs.existsSync(path.join(home, '.undertone', 'stopped')), 'the marker is gone')
+  assert.equal((await shutdown(resumed.port)).status, 202)
+  assert.equal(await within(resumed.exited, 3000), 0)
+  assert.ok(!fs.existsSync(path.join(home, '.undertone', 'stopped')), 'a plain shutdown leaves no marker')
+})
+
+test('the launcher starts a bridge that outlives it and writes to bridge.log', async () => {
+  const home = tmpHome()
+  const port = await freePort()
+  const out = await new Promise((resolve) => {
+    const p = spawn(process.execPath, [path.join(ROOT, 'bridge', 'launch.mjs'), String(port), '--auto'], { env: envFor(home, {}) })
+    let t = ''
+    p.stdout.on('data', (c) => { t += c })
+    p.on('exit', (code) => resolve({ code, text: t }))
+  })
+  assert.equal(out.code, 0)
+  const pid = JSON.parse(out.text).pid
+  children.add({ kill: (sig) => process.kill(pid, sig) })
+  let h = null
+  for (let i = 0; i < 100 && !h; i++) {
+    try { h = await fetch('http://127.0.0.1:' + port + '/health').then((r) => r.json()) } catch { await sleep(50) }
+  }
+  assert.equal(h && h.lifetime.auto, true)
+  assert.match(fs.readFileSync(path.join(home, '.undertone', 'bridge.log'), 'utf8'), /launch \d+ --auto[\s\S]*undertone bridge on/)
+  assert.equal((await shutdown(port)).status, 202)
+  for (let i = 0; i < 60; i++) {
+    try { process.kill(pid, 0) } catch { break }
+    await sleep(50)
+  }
+  assert.throws(() => process.kill(pid, 0), 'the bridge left')
 })

@@ -9,7 +9,10 @@
 //   /undertone          start the bridge if it isn't running and open the page
 //   /undertone status   is the bridge up, and is this session sending
 //   /undertone off|on   stop or resume sending this session's events
-//   /undertone stop     stop the bridge if this session started it, and stop restarting it
+//   /undertone stop     stop the bridge; sessions won't start it again until /undertone or npm start
+//
+// The bridge is simply there: the first session starts it detached (it belongs to no session) and
+// it leaves on its own after a quiet hour. The `bridge` setting "manual" turns that off.
 
 import { analyzeCommand, outcomes } from './commands.js'
 import { countWaiting } from './waiting.js'
@@ -37,7 +40,7 @@ let downUntil = 0
 let lastHealthy = 0
 let lastRestartTry = 0
 let autoRestart = true
-let bridge = null // the bridge process this session started, if any
+let bridgeMode = 'auto' // auto: the first session starts the bridge; manual: only /undertone or npm start
 let checksFailing = false
 let brainDir = ''
 let lastWaiting = ''
@@ -125,9 +128,9 @@ async function flush($) {
   } catch {
     downUntil = now + DOWN_BACKOFF_MS
     queue = batch.filter((q) => q.e.type !== 'alive').concat(queue)
-    if (autoRestart && lastHealthy && now - lastHealthy < RESTART_IF_SEEN_MS && now - lastRestartTry >= RESTART_EVERY_MS) {
+    if (autoRestart && (bridgeMode === 'auto' || (lastHealthy && now - lastHealthy < RESTART_IF_SEEN_MS)) && now - lastRestartTry >= RESTART_EVERY_MS) {
       lastRestartTry = now
-      void ensureBridge($)
+      void ensureBridge($).then((ok) => { if (ok) flush($) })
     }
   }
 }
@@ -196,22 +199,36 @@ async function healthy($) {
   }
 }
 
-async function ensureBridge($) {
+async function undertoneHome($) {
+  const own = await $.env.get('UNDERTONE_HOME')
+  if (own) return String(own).replace(/\\/g, '/')
+  const home = (await $.env.get('HOME')) || (await $.env.get('USERPROFILE')) || ''
+  return home ? String(home).replace(/\\/g, '/') + '/.undertone' : ''
+}
+
+// `/undertone stop` leaves this marker; sessions don't start the bridge again until `/undertone`
+async function stoppedOnPurpose($) {
+  const home = await undertoneHome($)
+  return !!home && (await listDir($, home)).some((f) => f.name === 'stopped')
+}
+
+// Starts a bridge that belongs to no session (bridge/launch.mjs): it outlives whatever started it
+// and leaves on its own after a quiet hour (--auto). `resume` lifts a deliberate /undertone stop.
+async function startDetached($, resume) {
+  const argv = ['node', String($.plugin.root).replace(/\\/g, '/') + '/bridge/launch.mjs', String(port), '--auto', ...(resume ? ['--resume'] : [])]
+  try {
+    const r = await $.process.run(argv, { timeoutMs: 15_000 })
+    return r.exitCode === 0
+  } catch (err) {
+    $.ui.log('undertone: could not start the bridge: ' + (err && err.message ? err.message : err))
+    return false
+  }
+}
+
+async function ensureBridge($, resume) {
   if (await healthy($)) return true
-  const child = $.process.spawn({ argv: ['node', $.plugin.root + '/bridge/server.mjs', String(port)] })
-  bridge = child
-  // The loop is the child's life: it ends with the bridge or when this module unloads
-  void (async () => {
-    try {
-      for await (const piece of child) {
-        const text = String(piece.text || '').trim()
-        if (text) $.ui.log('undertone bridge: ' + text, { to: 'debug' })
-      }
-    } catch (err) {
-      $.ui.log('undertone: the bridge did not start: ' + (err && err.message ? err.message : err))
-    }
-    if (bridge === child) bridge = null
-  })()
+  if (!resume && (await stoppedOnPurpose($))) return false
+  if (!(await startDetached($, resume))) return false
   for (let i = 0; i < 20; i++) {
     await $.clock.sleep(150)
     if (await healthy($)) {
@@ -239,6 +256,7 @@ export function register(on, options) {
   port = Number(options && options.port) || DEFAULT_PORT
   base = 'http://127.0.0.1:' + port
   brainDir = String((options && options.brainDir) || '').replace(/\\/g, '/')
+  bridgeMode = options && options.bridge === 'manual' ? 'manual' : 'auto'
 
   // Fires on startup, /resume, /clear, compaction and /branch: the lane is refreshed every time,
   // the timers and the command are set up once
@@ -250,6 +268,7 @@ export function register(on, options) {
       promptSeen = false
     }
     lane = now
+    emit($, 'session.start')
     if (!started) {
       started = true
       try {
@@ -261,8 +280,15 @@ export function register(on, options) {
       $.clock.every(HEARTBEAT_MS, () => emit($, 'alive'))
       $.clock.every(WAITING_EVERY_MS, () => sendWaiting($))
     }
-    emit($, 'session.start')
     $.clock.after(1500, () => sendWaiting($, true))
+    // The first session starts the bridge, off the session's own startup path
+    if (bridgeMode === 'auto' && sending) {
+      $.clock.after(0, async () => {
+        if (await healthy($)) return
+        lastRestartTry = await $.clock.now()
+        if (await ensureBridge($)) { downUntil = 0; await flush($) }
+      })
+    }
     return next(e)
   })
 
@@ -365,15 +391,18 @@ export function register(on, options) {
     }
     if (arg === 'stop') {
       autoRestart = false
-      if (!bridge) return { text: 'undertone: this session did not start the bridge, so it is left running. This session won\'t restart it any more.' }
-      const child = bridge
-      bridge = null
-      try { await child.return(undefined) } catch {}
-      return { text: 'undertone: bridge stopped, and this session won\'t restart it.' }
+      if (!(await healthy($))) return { text: 'undertone: no bridge is running. This session won\'t start one until `/undertone`.' }
+      let r = null
+      try {
+        r = await $.http.fetch(base + '/shutdown', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ sticky: true }) })
+      } catch {}
+      // A bridge from before 0.6 has no /shutdown
+      if (!r || !r.ok) return { text: 'undertone: the bridge at ' + base + ' did not stop (it may be older than 0.6). Stop it where it runs (Ctrl-C, or end its process). This session won\'t restart it.' }
+      return { text: 'undertone: bridge stopped. Sessions won\'t start it again until `/undertone` (or `npm start`).' }
     }
 
     autoRestart = true
-    if (!(await ensureBridge($))) {
+    if (!(await ensureBridge($, true))) {
       return { text: 'undertone: the bridge did not start. Run `npm start` in ' + $.plugin.root + ' to see why.' }
     }
     downUntil = 0

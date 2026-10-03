@@ -1,6 +1,6 @@
 # undertone roadmap
 
-Updated 2026-10-03, at 0.4.0. What's built, what's next and in what order, and what waits on purpose. The day-to-day threads live in coter-kit's brain; this is the plan they hang off. Change it when the order changes.
+Updated 2026-10-03, at 0.6.0. What's built, what's next and in what order, and what waits on purpose. The day-to-day threads live in coter-kit's brain; this is the plan they hang off. Change it when the order changes.
 
 ## Where it is
 
@@ -11,7 +11,8 @@ Updated 2026-10-03, at 0.4.0. What's built, what's next and in what order, and w
 | 0.2 (`69319af`..`10efa1b`) | Ears (clips Claude can read) and the Gemini critic, the event log, phone pings over ntfy, outside sources (Azure) |
 | 0.3.0 (`0f491f8`) | Grok's hardening pass, `GET /state`, failing checks named by kind |
 | 0.4.0 (`d980922`) | The bridge runs outside sources itself (one window), the Azure source works on Windows, the ourPlace lane tells chats from requests, this roadmap |
-| 0.5.0 | Timesheets: each machine writes a small daily summary per project into the brain; `npm run week` and `GET /timesheet` add up every machine's |
+| 0.5.0 (`84696b9`) | Timesheets: each machine writes a small daily summary per project into the brain; `npm run week` and `GET /timesheet` add up every machine's |
+| 0.6.0 | A bridge that's simply there: the first session starts it detached, it leaves after a quiet hour, `/undertone stop` holds until you start it again |
 
 ## Now
 
@@ -20,10 +21,9 @@ Updated 2026-10-03, at 0.4.0. What's built, what's next and in what order, and w
 
 ## Next, in order
 
-1. **A bridge that's simply there.** Today it lives in a terminal (`npm start`) or as long as the session that ran `/undertone`. Start it detached with the first session and let it exit after a quiet hour, so there's nothing to keep open.
-2. **Home dashboard** on `GET /state` and `GET /timesheet`: every session at a glance, what needs you first, what's failing. The data is there since 0.3.
-3. **Synth tuning loop.** Agreed by spectrogram and two Gemini reads: drums buried, mud at 180-300 Hz, hiss sitting alone on top. Before and after spectrograms per change. Waits on the engine verdict above, in case Synth isn't the keeper.
-4. **More outside sources**, each a lane that colors the music without leading it: wallstbets bots (fills as pulses, a stalled bot as a failing check), GitHub Actions (a red run as a check), a Grok review landing.
+1. **Home dashboard** on `GET /state` and `GET /timesheet`: every session at a glance, what needs you first, what's failing. The data is there since 0.3.
+2. **Synth tuning loop.** Agreed by spectrogram and two Gemini reads: drums buried, mud at 180-300 Hz, hiss sitting alone on top. Before and after spectrograms per change. Waits on the engine verdict above, in case Synth isn't the keeper.
+3. **More outside sources**, each a lane that colors the music without leading it: wallstbets bots (fills as pulses, a stalled bot as a failing check), GitHub Actions (a red run as a check), a Grok review landing.
 
 ## Later, on purpose
 
@@ -40,4 +40,5 @@ Updated 2026-10-03, at 0.4.0. What's built, what's next and in what order, and w
 ## Known gaps
 
 - Phone pings skip the "file readable by others" check on Windows (no chmod there).
+- The detached start is proven on the Mac; on Windows it's tested only in the mod's tests until the PC runs 0.6.
 - A plugin install from GitHub needs SSH, or git told to use HTTPS for github.com (what the PC does).

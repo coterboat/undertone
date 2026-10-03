@@ -1,6 +1,6 @@
 {
   "name": "undertone",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "Plays your Claude Code sessions as music: each session is a voice, commits resolve the chord, a broken build holds a sour note",
   "author": {
     "name": "coterboat"
@@ -17,6 +17,12 @@
       "title": "coter-kit brain folder",
       "description": "Where coter-kit's brain lives, for the waiting-on-you drone. Empty means ~/.claude/coter-brain.",
       "default": ""
+    },
+    "bridge": {
+      "type": "string",
+      "title": "Bridge",
+      "description": "auto: the first session starts the bridge and it leaves after a quiet hour; manual: only /undertone or npm start",
+      "default": "auto"
     }
   }
 }
