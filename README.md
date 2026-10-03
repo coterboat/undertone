@@ -67,6 +67,22 @@ mkdir -p ~/.config/undertone && pbpaste > ~/.config/undertone/gemini.key && chmo
 
 `GEMINI_API_KEY` works too. `UNDERTONE_GEMINI_MODEL` picks the model (default `gemini-flash-latest`). To critique an older clip: `node ear/gemini.mjs <clip folder>`.
 
+## Your phone
+
+When a session has had a permission prompt waiting for a minute (or has sat idle for five), the bridge pings your phone through [ntfy](https://ntfy.sh): a free app with no account. Anything the session does first cancels the ping, so at your desk you only hear the call. Setup is `~/.config/undertone/ntfy.json`:
+
+```json
+{ "server": "https://ntfy.sh", "topic": "undertone-<random>", "permissionAfterSec": 60, "idleAfterSec": 300 }
+```
+
+On ntfy.sh a topic is private only because nobody can guess it, so keep it random. A ping carries the lane's name (project and worktree), never code or prompts. Install ntfy on the phone and subscribe to the topic. `curl -X POST http://127.0.0.1:4747/notify/test` sends a test.
+
+## Sources beyond Claude
+
+Anything can post events to the bridge. An outside source gets a lane of its own that colors the music but never leads it: a `pulse` event (`count` things happened) plays that many soft high notes, and `fail` / `pass` hold and release the sour note.
+
+`sources/azure-metrics.mjs` turns Azure Monitor metrics into a source: counts per minute (requests, model calls, errors), never logs or traces, so nothing a user typed can come through. Describe sources in `~/.config/undertone/sources.json` (format at the top of the file), log in with `az login`, then run `npm run sources`. `npm run sources:mock` plays made-up chatbot traffic, to hear it before anything is wired. Azure publishes each minute's numbers late, so the lane trails real time by about three minutes.
+
 ## Event log
 
 The bridge appends every event to `~/.undertone/log/<date>.jsonl`: session starts and heartbeats, prompts, turns, tool calls, commits, failing and passing checks, calls for you. It's the raw material for metrics such as time per project, time Claude spent waiting on you, and how long builds stayed broken.
@@ -93,6 +109,7 @@ coter-kit's brain (open questions) ───────────────
 | `web/engines/*.js` | The engines. Each takes the same calls (`pad`, `bass`, `voice`, `drum`, `bell`, `sour`, `drone`, `texture`, `energy`); `common.js` describes them. |
 | `sc/undertone.scd` | SuperCollider's synths, effects and OSC handlers. |
 | `ear/analyze.mjs`, `ear/gemini.mjs` | The ears: clip analysis and spectrograms, and Gemini's critique. |
+| `sources/azure-metrics.mjs` | An outside source: Azure Monitor metrics as a lane. |
 | `tests/undertone.test.ts` | Mod tests; run them with `claude plugin test .` |
 
 ## coter-kit

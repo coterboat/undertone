@@ -8,7 +8,9 @@
 //   POST /sc              notes for SuperCollider, as JSON; relayed to sclang over OSC
 //   POST /ear             a reaction or snapshot from the page: the last 20-30 s of audio and what
 //                         was playing; saved with its analysis under ~/.undertone/ear (see ear/)
+//   POST /notify/test     send a test ping to your phone (ntfy; see ~/.config/undertone/ntfy.json)
 // Every event is also appended to ~/.undertone/log/<date>.jsonl, the raw material for metrics.
+// A session that waits on you (a permission prompt for a minute, idle for five) pings your phone.
 // Listens on 127.0.0.1 only. No dependencies: `node bridge/server.mjs [port]`.
 
 import http from 'node:http'
@@ -39,8 +41,9 @@ const LANE_TTL_MS = 3 * 60 * 1000
 const TYPES = new Set([
   'session.start', 'session.end', 'alive', 'prompt', 'turn.start', 'turn.end', 'attention', 'tool', 'edit',
   'commit', 'push', 'fail', 'pass', 'checklist', 'waiting', 'waiting.open', 'waiting.resolve',
+  'pulse', // an outside source: `count` things happened (chats on a site, fills in a bot), played as notes
 ])
-const KINDS = new Set(['read', 'edit', 'run', 'web', 'agent', 'other'])
+const KINDS = new Set(['read', 'edit', 'run', 'web', 'agent', 'other', 'chime'])
 const REASONS = new Set(['permission', 'idle'])
 
 const listeners = new Set()
@@ -57,6 +60,7 @@ function clean(e) {
   if (KINDS.has(e.kind)) out.kind = e.kind
   if (REASONS.has(e.reason)) out.reason = e.reason
   if (e.source) out.source = clip(e.source, 32)
+  if (e.what) out.what = clip(e.what, 40)
   for (const k of ['done', 'total', 'count']) if (Number.isFinite(e[k])) out[k] = Math.max(0, Math.min(999, Math.round(e[k])))
   if (e.type === 'waiting' && e.projects && typeof e.projects === 'object') {
     out.projects = {}
@@ -124,6 +128,49 @@ function readJson(req, res, then, max = MAX_BODY) {
     try { parsed = JSON.parse(Buffer.concat(chunks).toString('utf8')) } catch { res.writeHead(400).end(); return }
     then(parsed)
   })
+}
+
+// ---------------------------------------------------------------- your phone (ntfy)
+
+const NTFY_FILE = path.join(os.homedir(), '.config', 'undertone', 'ntfy.json')
+function ntfyConfig() {
+  try {
+    const c = JSON.parse(fs.readFileSync(NTFY_FILE, 'utf8'))
+    return c && c.topic ? { server: 'https://ntfy.sh', permissionAfterSec: 60, idleAfterSec: 300, ...c } : null
+  } catch {
+    return null
+  }
+}
+
+// JSON publishing, so titles with any characters go through
+function notifyPhone(title, message, priority = 3, tags = ['musical_note']) {
+  const c = ntfyConfig()
+  if (!c) return Promise.resolve(false)
+  return fetch(c.server.replace(/\/+$/, '') + '/', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ topic: c.topic, title, message, priority, tags }),
+  }).then((r) => r.ok).catch(() => false)
+}
+
+// A call nobody answered at the desk goes to the phone; anything else the session does cancels it
+const phoneTimers = new Map() // lane -> timer
+function watchForPhone(e) {
+  if (e.type === 'alive' || e.type === 'waiting') return
+  if (phoneTimers.has(e.lane)) { clearTimeout(phoneTimers.get(e.lane)); phoneTimers.delete(e.lane) }
+  if (e.type !== 'attention') return
+  const c = ntfyConfig()
+  if (!c) return
+  const idle = e.reason === 'idle'
+  phoneTimers.set(e.lane, setTimeout(() => {
+    phoneTimers.delete(e.lane)
+    notifyPhone(
+      e.label + (idle ? ' is waiting for you' : ' needs your OK'),
+      idle ? 'Claude finished and has been sitting idle.' : 'A permission prompt has been waiting for a minute.',
+      idle ? 3 : 4,
+      [idle ? 'hourglass' : 'raised_hand'],
+    )
+  }, (idle ? c.idleAfterSec : c.permissionAfterSec) * 1000))
 }
 
 // ---------------------------------------------------------------- SuperCollider over OSC
@@ -404,7 +451,7 @@ const server = http.createServer((req, res) => {
   if (req.method === 'POST' && url.pathname === '/event') {
     readJson(req, res, (parsed) => {
       const events = (Array.isArray(parsed) ? parsed : [parsed]).map(clean).filter(Boolean)
-      for (const e of events) { track(e); logEvent(e); broadcast(e) }
+      for (const e of events) { track(e); logEvent(e); watchForPhone(e); broadcast(e) }
       res.writeHead(204).end()
     })
     return
@@ -428,6 +475,14 @@ const server = http.createServer((req, res) => {
         res.end(JSON.stringify({ ok: false, error: String(err && err.message ? err.message : err) }))
       })
     }, MAX_EAR_BODY)
+    return
+  }
+
+  if (req.method === 'POST' && url.pathname === '/notify/test') {
+    notifyPhone('undertone is connected', 'When a session waits on you for a minute, it pings you here.', 3, ['musical_note']).then((ok) => {
+      res.writeHead(ok ? 200 : 503, { 'content-type': 'application/json' })
+      res.end(JSON.stringify({ ok, configured: !!ntfyConfig() }))
+    })
     return
   }
 

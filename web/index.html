@@ -556,7 +556,8 @@ async function startEngine(id) {
 // The page's master carries the browser engines; an engine that plays outside the page gets the level itself
 function applyLevel() {
   if (!S.audio) return;
-  const on = S.playing ? 1.2 : 0;
+  // Peaks sat at -3 dB with the limiter working; a little less leaves it headroom
+  const on = S.playing ? 1.0 : 0;
   S.audio.master.gain.rampTo(on, S.playing ? 0.6 : 0.4);
   E('level', S.playing ? Math.pow(10, S.volume / 20) : 0);
 }
@@ -580,8 +581,8 @@ function setEngineStatus(text, isError) {
 
 const toVis = (time) => wall() + (time - S.audio.ctx.currentTime);
 const DUR = { keys: '8n', pluck: '16n', mallet: '16n', cello: '4n' };
-const VEL = { read: 0.38, edit: 0.62, run: 0.55, web: 0.5, agent: 0.5, other: 0.45, ambient: 0.3 };
-const AIM = { read: 0.15, edit: 0.5, run: 0.8, web: 0.92, agent: 0.62, other: 0.5 };
+const VEL = { read: 0.38, edit: 0.62, run: 0.55, web: 0.5, agent: 0.5, other: 0.45, ambient: 0.3, chime: 0.34 };
+const AIM = { read: 0.15, edit: 0.5, run: 0.8, web: 0.92, agent: 0.62, other: 0.5, chime: 0.86 };
 
 function tick(time) {
   const s = S.step++;
@@ -806,6 +807,8 @@ function ensureLane(e, source) {
       queue: [], energy: 0.15, busy: false, failing: false, muted: false, off: !projectOn(proj),
       done: 0, total: 0, idx: null, pool: null, ended: false, last: wall(), lastWork: wall(),
       needs: null, callsLeft: 0, nextCall: 0, fails: [],
+      // An outside source (a production site, a bot) colours the music but never leads it
+      external: !!e.source || e.type === 'pulse', pulses: [], what: '',
     };
     lanes.set(id, ln);
     ln.pool = poolFor(mood(), S.chord, ln.timbre);
@@ -843,7 +846,7 @@ const KIND_OF_TOOL = (tool) => {
 };
 
 // Anything a session does means its call has been answered
-const WORK = new Set(['prompt', 'turn.start', 'tool', 'edit', 'commit', 'push']);
+const WORK = new Set(['prompt', 'turn.start', 'tool', 'edit', 'commit', 'push', 'pulse']);
 
 function ingest(e, source) {
   if (!e || typeof e.type !== 'string') return;
@@ -897,6 +900,16 @@ function ingest(e, source) {
       ln.queue.push(kind);
       if (ln.queue.length > 6) ln.queue.shift();
       kick(kind === 'edit' ? 0.12 : 0.07);
+      break;
+    }
+    case 'pulse': {
+      // `count` things happened at the source since its last report: a soft high note each, eight at most
+      const n = Math.max(1, Math.min(8, Number(e.count) || 1));
+      for (let i = 0; i < n; i++) ln.queue.push(e.kind || 'chime');
+      if (ln.queue.length > 8) ln.queue.splice(0, ln.queue.length - 8);
+      kick(0.04 * n);
+      ln.pulses.push({ t: wall(), n: Math.max(1, Number(e.count) || 1) });
+      if (e.what) ln.what = String(e.what);
       break;
     }
     case 'commit': case 'push':
@@ -955,7 +968,7 @@ function pickLead() {
   else {
     const score = {};
     for (const l of lanes.values()) {
-      if (l.ended || l.off || wall() - l.lastWork > 180) continue;
+      if (l.ended || l.off || l.external || wall() - l.lastWork > 180) continue;
       score[l.project] = (score[l.project] || 0) + l.energy + (l.busy ? 0.3 : 0);
     }
     const ranked = Object.keys(score).sort((a, b) => score[b] - score[a]);
@@ -1340,6 +1353,7 @@ function renderLanesSoon() {
 }
 
 const NEEDS = { permission: 'needs your OK', idle: 'waiting for you', done: 'your move' };
+const pulsesLastHour = (l) => l.pulses.filter((p) => wall() - p.t < 3600).reduce((a, p) => a + p.n, 0);
 
 function renderLanes() {
   const items = [...lanes.values()].filter((l) => !l.ended);
@@ -1352,6 +1366,7 @@ function renderLanes() {
         ${l.needs && l.needs !== 'done' ? `<span class="chip call">${NEEDS[l.needs]}</span>` : `<span class="chip ${l.busy ? 'on' : ''}">${l.busy ? 'working' : l.needs === 'done' ? NEEDS.done : 'idle'}</span>`}
         ${l.failing ? '<span class="chip fail">build failing</span>' : ''}
         ${l.total ? `<span class="chip">${l.done}/${l.total}</span>` : ''}
+        ${l.external ? `<span class="chip">${pulsesLastHour(l)} ${esc(l.what || 'events')} in the last hour</span>` : ''}
         <span class="energy" title="Activity"><i style="width:${Math.round(l.energy * 100)}%"></i></span>
       </div>
       <button class="mute" type="button" data-mute="${esc(l.id)}" aria-pressed="${l.muted}">${l.muted ? 'Muted' : 'Mute'}</button>

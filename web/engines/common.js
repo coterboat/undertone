@@ -45,29 +45,30 @@
     return { verbIn, echoIn, send, dispose: () => nodes.forEach((n) => n.dispose()) }
   }
 
-  // Tape hiss and vinyl crackle: a generated six-second loop, no samples. Soft by design:
-  // the crackle is sparse and its loudest clicks are capped.
+  // Tape hiss and vinyl crackle: a generated six-second loop, no samples. Soft by design: the
+  // crackle is sparse, every pop is small (a rare loud pop was what read as "too crackly"), and
+  // the hiss is filtered so it doesn't sit alone on top of the mix.
   function makeTexture(io) {
     const { Tone, ctx, out } = io
     const sr = ctx.sampleRate
     const len = Math.floor(sr * 6)
     const buf = new Float32Array(len)
-    for (let i = 0; i < len; i++) buf[i] = (Math.random() * 2 - 1) * 0.005
-    for (let i = Math.floor(sr * 0.05); i < len; i += Math.floor(sr * (0.04 + Math.random() * 0.4))) {
-      const amp = Math.pow(Math.random(), 4) * 0.22 + 0.015
+    for (let i = 0; i < len; i++) buf[i] = (Math.random() * 2 - 1) * 0.003
+    for (let i = Math.floor(sr * 0.05); i < len; i += Math.floor(sr * (0.12 + Math.random() * 0.8))) {
+      const amp = Math.random() * 0.05 + 0.012
       const n = Math.floor(sr * 0.0012)
       for (let k = 0; k < n && i + k < len; k++) buf[i + k] += amp * (Math.random() * 2 - 1) * Math.exp(-k / (n * 0.3))
     }
     const player = new Tone.Player(Tone.ToneAudioBuffer.fromArray(buf))
     player.loop = true
     const hp = new Tone.Filter(900, 'highpass')
-    const lp = new Tone.Filter(7000, 'lowpass')
+    const lp = new Tone.Filter(5000, 'lowpass')
     const gain = new Tone.Gain(0)
     player.chain(hp, lp, gain, out)
     player.start()
     return {
       // 0 is silent; 1 is about -24 dB under the music
-      set: (a) => gain.gain.rampTo(a <= 0.001 ? 0 : 0.012 + a * 0.05, 0.4),
+      set: (a) => gain.gain.rampTo(a <= 0.001 ? 0 : 0.008 + a * 0.035, 0.4),
       dispose: () => [player, hp, lp, gain].forEach((n) => n.dispose()),
     }
   }

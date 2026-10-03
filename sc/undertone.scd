@@ -160,8 +160,8 @@ fork { 0.5.wait; s.waitForBoot({
 
 	SynthDef(\utVinyl, { |out, amount = 0.25|
 		var a = Lag.kr(amount, 0.4), crackle, hiss;
-		crackle = BPF.ar(Dust2.ar(2 + (a * 12)), 3000, 1.5) * 0.3;
-		hiss = HPF.ar(PinkNoise.ar(0.01), 900);
+		crackle = BPF.ar(Dust2.ar(1 + (a * 5)), 2500, 1.5) * 0.15;
+		hiss = LPF.ar(HPF.ar(PinkNoise.ar(0.006), 900), 5000);
 		Out.ar(out, Pan2.ar((crackle + hiss) * a * 0.6, 0));
 	}).add;
 

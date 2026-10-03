@@ -102,11 +102,12 @@ window.UndertoneEngines.add({
         kick.connect(drumBus)
         const snareBand = keep(new Tone.Filter({ frequency: 1700, type: 'bandpass', Q: 0.8 }))
         snare = keep(new Tone.NoiseSynth({ noise: { type: 'pink' }, envelope: { attack: 0.002, decay: 0.17, sustain: 0 } }))
-        snare.volume.value = -11
+        // Measured 30 dB under the kick on its own; both Gemini reads called the drums buried
+        snare.volume.value = -3
         snare.chain(snareBand, drumBus)
         const hatHp = keep(new Tone.Filter(7500, 'highpass'))
         hat = keep(new Tone.NoiseSynth({ noise: { type: 'white' }, envelope: { attack: 0.001, decay: 0.035, sustain: 0 } }))
-        hat.volume.value = -24
+        hat.volume.value = -18
         hat.chain(hatHp, drumBus)
         tom = keep(new Tone.MembraneSynth({ pitchDecay: 0.09, octaves: 2.5, envelope: { attack: 0.002, decay: 0.9, sustain: 0, release: 0.3 } }))
         tom.volume.value = -8
