@@ -382,7 +382,8 @@ tr.attn td:first-child { color: var(--call); }
 const L = await import('./lib/lanes.mjs');
 
 const qs = (s) => document.querySelector(s);
-const LIVE = location.protocol === 'http:' && /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname);
+// Live when the bridge served this page (it adds the meta), at 127.0.0.1 or a name in its hosts.json
+const LIVE = !!qs('meta[name="undertone-bridge"]') || (location.protocol === 'http:' && /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname));
 const REDUCED = matchMedia('(prefers-reduced-motion: reduce)').matches;
 const ENGINES = window.UndertoneEngines;
 const wall = () => performance.now() / 1000;

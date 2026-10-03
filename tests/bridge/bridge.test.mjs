@@ -113,6 +113,38 @@ test('only requests addressed to the bridge itself are answered; nothing is logg
   ntfy.close()
 })
 
+test('a name in hosts.json (say, the Mac under tailscale serve) is answered too, posts only from that https origin, and its page runs live', async () => {
+  const home = tmpHome()
+  const dir = path.join(home, '.config', 'undertone')
+  fs.mkdirSync(dir, { recursive: true })
+  const file = path.join(dir, 'hosts.json')
+  fs.writeFileSync(file, JSON.stringify({ hosts: ['Mac.tail0000.ts.net'] }))
+  const b = await bridge({ home })
+  const name = 'mac.tail0000.ts.net'
+
+  for (const p of ['/', '/health', '/state', '/events']) assert.equal((await raw(b.port, 'GET', p, { host: name })).status, 200, name + p)
+  assert.equal((await raw(b.port, 'GET', '/health', { host: name + ':8443' })).status, 200, 'on another port too')
+  assert.match((await raw(b.port, 'GET', '/', { host: name })).text, /<meta name="undertone-bridge"/)
+  assert.match((await raw(b.port, 'GET', '/')).text, /<meta name="undertone-bridge"/)
+  for (const host of ['other.tail0000.ts.net', 'mac.tail0000.ts.net.evil.example', 'evil.example:' + b.port]) {
+    assert.equal((await raw(b.port, 'GET', '/health', { host })).status, 421, host)
+  }
+
+  const post = (host, origin) => raw(b.port, 'POST', '/event', { host, headers: { 'content-type': 'application/json', origin }, body: '[]' })
+  assert.equal((await post(name, 'https://' + name)).status, 204)
+  assert.equal((await post(name + ':8443', 'https://' + name + ':8443')).status, 204)
+  assert.equal((await post(name, 'http://' + name)).status, 403, 'only the https origin')
+  assert.equal((await post(name, 'https://evil.example')).status, 403)
+  assert.equal((await post('127.0.0.1:' + b.port, 'https://' + name)).status, 403, 'a local address takes local origins only')
+
+  fs.writeFileSync(file, JSON.stringify({ hosts: [] }))
+  assert.equal((await raw(b.port, 'GET', '/health', { host: name })).status, 421, 'read fresh: an emptied list refuses the name again')
+  fs.writeFileSync(file, '{ not json')
+  assert.equal((await raw(b.port, 'GET', '/health', { host: name })).status, 421, 'a broken file allows nothing extra')
+  assert.equal((await raw(b.port, 'GET', '/health')).status, 200)
+  await b.stop()
+})
+
 test('a session waiting on a permission prompt is needs_ok in /state, and still is after the bridge restarts', async () => {
   const home = tmpHome()
   let b = await bridge({ home })

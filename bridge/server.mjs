@@ -137,7 +137,8 @@ function replay() {
 function page() {
   const body = fs.readFileSync(PAGE, 'utf8')
   return '<!doctype html><html lang="en"><head><meta charset="utf-8">' +
-    '<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"></head><body>' +
+    '<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">' +
+    '<meta name="undertone-bridge" content="live"></head><body>' +
     body + '</body></html>'
 }
 
@@ -502,14 +503,27 @@ function pruneOld() {
 
 // ---------------------------------------------------------------- HTTP
 
-// Only requests addressed to this bridge (127.0.0.1 or localhost on its port); no posts from other origins
+// Names the bridge answers to besides 127.0.0.1 and localhost, from ~/.config/undertone/hosts.json
+// ({ "hosts": ["your-mac.tailnet.ts.net"] }), say when `tailscale serve` passes it to your phone.
+// Read fresh on each request for such a name, like ntfy.json; a missing or broken file allows none.
+function extraHosts() {
+  try {
+    const list = JSON.parse(fs.readFileSync(path.join(os.homedir(), '.config', 'undertone', 'hosts.json'), 'utf8')).hosts
+    return Array.isArray(list) ? list.filter((h) => typeof h === 'string').map((h) => h.toLowerCase()) : []
+  } catch { return [] }
+}
+
+// Only requests addressed to this bridge (127.0.0.1 or localhost on its port, or a name in hosts.json
+// on any port); posts only from the page that address serves
 function refused(req) {
   const port = server.address() && server.address().port
   const host = String(req.headers.host || '').toLowerCase()
-  if (host !== '127.0.0.1:' + port && host !== 'localhost:' + port) return 421
+  const local = host === '127.0.0.1:' + port || host === 'localhost:' + port
+  if (!local && !extraHosts().includes(host.replace(/:\d+$/, ''))) return 421
   if (req.method === 'POST' && req.headers.origin) {
     const origin = String(req.headers.origin).toLowerCase()
-    if (origin !== 'http://127.0.0.1:' + port && origin !== 'http://localhost:' + port) return 403
+    const ok = local ? origin === 'http://127.0.0.1:' + port || origin === 'http://localhost:' + port : origin === 'https://' + host
+    if (!ok) return 403
   }
   return 0
 }

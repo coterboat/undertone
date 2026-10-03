@@ -96,6 +96,8 @@ What leaves the machine: a title (that name plus "needs your OK" or "is waiting 
 
 Only Claude Code sessions the bridge has heard start (or heartbeat) can ping, never outside sources; a scheduled run pings only for a permission prompt that blocks it. At most one ping per session every 15 minutes and 12 an hour; the rest are dropped and counted. The bridge refuses to send, and says why in `/health` under `notify`, when `server` isn't https, the topic is short with no token, or the file can be read by other users. Install ntfy on the phone, subscribe to the topic, and `curl -X POST http://127.0.0.1:4747/notify/test` sends a test.
 
+To open the page itself on the phone, put the Mac and the phone on one [Tailscale](https://tailscale.com) network, run `tailscale serve --bg 4747` on the Mac, and name the address it prints in `~/.config/undertone/hosts.json`: `{ "hosts": ["your-mac.your-tailnet.ts.net"] }`. The bridge then answers that name too (read fresh, no restart), and the page it serves there is live, not the demo. Only your tailnet's devices reach that address. Synth and Sampled play on the phone; SuperCollider plays on the Mac.
+
 ## Sources beyond Claude
 
 Anything can post events to the bridge. An outside source marks its events with `origin` (and its lane id starts with `src-`), which gives it a lane of its own that colors the music but never leads it, never calls you and never pings your phone: a `pulse` event (`count` things happened) plays that many soft notes (high chimes, or another register with `kind`), and `fail` / `pass` with a `check` hold and release the sour note.
@@ -196,7 +198,7 @@ What leaves the machine:
 | Google (Gemini) | A clip's audio, engine, mood, key, tempo, texture level, reaction kind; its note only with `UNDERTONE_GEMINI_NOTE=1` | You press Love this, This grates or Snapshot, with a Gemini key set |
 | Nowhere else | Outside sources run locally: Azure is read through your own `az` CLI, and only counts reach the bridge | |
 
-The bridge listens on 127.0.0.1 only and answers only requests addressed to `127.0.0.1:<port>` or `localhost:<port>` (anything else gets 421), so a web page can't reach it through DNS rebinding. Posts from another origin get 403, and posts need a JSON content type. It keeps only the fields the page reads.
+The bridge listens on 127.0.0.1 only and answers only requests addressed to `127.0.0.1:<port>` or `localhost:<port>`, or to a name you list in `hosts.json` (anything else gets 421), so a web page can't reach it through DNS rebinding. Posts from another origin get 403 (a listed name takes posts only from its own `https://` page), and posts need a JSON content type. It keeps only the fields the page reads.
 
 ## Commands
 

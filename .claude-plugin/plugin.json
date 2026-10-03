@@ -1,6 +1,6 @@
 {
   "name": "undertone",
-  "version": "0.6.1",
+  "version": "0.6.2",
   "description": "Plays your Claude Code sessions as music: each session is a voice, commits resolve the chord, a broken build holds a sour note",
   "author": {
     "name": "coterboat"
