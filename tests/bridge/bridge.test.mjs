@@ -152,8 +152,7 @@ test('a session waiting on a permission prompt is needs_ok in /state, and still 
   let s = (await b.state()).lanes.find((l) => l.lane === 'state001')
   assert.equal(s.state, 'needs_ok')
   assert.deepEqual(s.failingChecks, ['test'])
-  await sleep(200) // the log is appended asynchronously
-  await b.stop()
+  await b.stop() // straight away: a stop waits for the log, in order (it used to race the appends)
   b = await bridge({ home })
   s = (await b.state()).lanes.find((l) => l.lane === 'state001')
   assert.equal(s && s.state, 'needs_ok')

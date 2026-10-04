@@ -88,12 +88,27 @@ function clean(e) {
 
 const day = (d) => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0')
 
-// The last few minutes stay in memory (what was going on when you reacted); everything goes to the day's log
+// The last few minutes stay in memory (what was going on when you reacted); everything goes to the day's log.
+// Writes are batched and go out one after another, so lines land in the order they came, and a
+// shutdown waits for them (one append per event raced each other, and an exit could drop the last)
 const recent = []
+const logBuf = new Map() // file -> lines not written yet
+let logTimer = null
+let logChain = Promise.resolve()
 function logEvent(e) {
   recent.push(e)
   if (recent.length > 3000) recent.splice(0, recent.length - 3000)
-  fs.appendFile(path.join(LOG_DIR, day(new Date(e.ts)) + '.jsonl'), JSON.stringify(e) + '\n', () => {})
+  const file = path.join(LOG_DIR, day(new Date(e.ts)) + '.jsonl')
+  logBuf.set(file, (logBuf.get(file) || '') + JSON.stringify(e) + '\n')
+  if (!logTimer) logTimer = setImmediate(flushLog)
+}
+function flushLog() {
+  if (logTimer) clearImmediate(logTimer)
+  logTimer = null
+  const batch = [...logBuf]
+  logBuf.clear()
+  logChain = logChain.then(() => Promise.all(batch.map(([file, text]) => fs.promises.appendFile(file, text)))).catch(() => {})
+  return logChain
 }
 
 function broadcast(e) {
@@ -418,7 +433,7 @@ function stopSc() {
 const SOURCES_CONFIG = process.env.UNDERTONE_SOURCES_CONFIG || path.join(os.homedir(), '.config', 'undertone', 'sources.json')
 let sources = null
 
-const shutdown = () => Promise.all([stopSc(), sources?.stop()]).then(() => process.exit(0))
+const shutdown = () => Promise.all([stopSc(), sources?.stop(), flushLog()]).then(() => process.exit(0))
 
 // ---------------------------------------------------------------- lifetime
 
