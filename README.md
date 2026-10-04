@@ -149,7 +149,9 @@ Nothing expires by default: the clips are what teaches Claude to hear, and the l
 
 ## Projects
 
-The **Projects** panel lists every project with a running session or questions waiting on you. Untick one to silence it: its sessions stop playing, its broken builds and open questions drop out of the mix. The lead project sets the key and tempo; **Auto** follows the busiest project of the last three minutes and holds still when everything is quiet. Each project can keep its own mood (jobsnearme defaults to bright D major, ourPlace to a warm E♭, Iron Veil to D minor with war drums, wallstbets to A dorian with a ticking hat, anything else to F major). The page remembers your picks.
+The **Projects** panel lists every project with a running session or questions waiting on you. Untick one to silence it: its sessions stop playing, its broken builds and open questions drop out of the mix. The lead project sets the key and tempo; **Auto** follows the busiest project of the last three minutes and holds still when everything is quiet. Each project can keep its own mood (jobsnearme defaults to bright D major, ourPlace to a warm E♭, Iron Veil to D minor with war drums, wallstbets to A dorian with a ticking hat, undertone, coter-kit and home to Blue hour, anything else to F major). The page remembers your picks.
+
+A mood can also be a **style**: a band and a groove of its own, not just a key. **Blue hour** is the first, a jazz-hop trio in B♭: ii-V-I-VI chords, swung eighths, a walking bass that walks when anyone's busy and drops to half notes when it's quiet, a ride with a cross-stick on 2 and 4, and rootless piano comping (a Rhodes on Sampled, an FM electric piano on Synth) on a different rhythm each bar. Everything that tells you something (each session's call, the sour notes, the asks) sounds the same in every style.
 
 ## How it fits together
 

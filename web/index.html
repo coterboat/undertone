@@ -417,6 +417,7 @@ const QUALITY = {
   maj9: [0, 4, 7, 11, 14], maj7: [0, 4, 7, 11], m9: [0, 3, 7, 10, 14], m7: [0, 3, 7, 10],
   m11: [0, 3, 7, 10, 14, 17], '9sus4': [0, 5, 7, 10, 14], '6/9': [0, 4, 7, 9, 14], '9': [0, 4, 7, 10, 14],
   'm(add9)': [0, 3, 7, 14],
+  '13': [0, 4, 10, 14, 21], '7b9': [0, 4, 10, 13], // dominants, for jazz
 };
 
 // Each mood loops a progression that never quite resolves; a commit sends it home.
@@ -426,6 +427,9 @@ const MOODS = {
   warm:   { name: 'Warm room',  label: 'E♭ major', tonic: 51, sharp: false, bpm: 74, swing: 0.16, scale: [0, 2, 4, 7, 9],  prog: [[5, 'maj9'], [9, 'm9'], [2, 'm7'], [7, '9sus4']], home: [0, '6/9'],  drums: 'brush',  padHz: 800 },
   dusk:   { name: 'Iron Veil',  label: 'D minor',  tonic: 50, sharp: false, bpm: 68, swing: 0.04, scale: [0, 3, 5, 7, 10], prog: [[8, 'maj7'], [5, 'm9'], [10, '9sus4'], [7, 'm7']], home: [0, 'm(add9)'], drums: 'war', padHz: 650 },
   ticker: { name: 'Ticker',     label: 'A dorian', tonic: 45, sharp: true,  bpm: 100, swing: 0.06, scale: [0, 2, 3, 7, 9], prog: [[5, '9'], [3, 'maj7'], [10, 'maj7'], [7, 'm7']], home: [0, 'm11'],  drums: 'ticker', padHz: 1100 },
+  // A style, not just a key: a jazz-hop trio. ii-V-I-VI, a walking bass, ride and cross-stick, piano
+  // comping, swung eighths. B-flat sits a fifth from Late shift, one step around the circle.
+  jazz:   { name: 'Blue hour',  label: 'B♭ major', tonic: 46, sharp: false, bpm: 84, swing: 0.5, swingSub: '8n', scale: [0, 2, 4, 5, 7, 9, 11], prog: [[2, 'm9'], [7, '13'], [0, 'maj9'], [9, '7b9']], home: [0, '6/9'], drums: 'jazz', style: 'jazz', padHz: 1000 },
 };
 const moodFor = (project) => {
   const p = String(project || '').toLowerCase();
@@ -433,6 +437,7 @@ const moodFor = (project) => {
   if (/ourplace/.test(p)) return 'warm';
   if (/xcom|iron|veil|godot/.test(p)) return 'dusk';
   if (/wallst|bets|trad|alpaca/.test(p)) return 'ticker';
+  if (/undertone|coter|home/.test(p)) return 'jazz';
   return 'lofi';
 };
 const noteName = (m, sharp) => (sharp ? SHARPS : FLATS)[((m % 12) + 12) % 12];
@@ -533,7 +538,7 @@ async function buildAudio() {
 
   T.bpm.value = mood().bpm;
   T.swing = mood().swing;
-  T.swingSubdivision = '16n';
+  T.swingSubdivision = mood().swingSub || '16n';
   new Tone.Loop((time) => tick(time), '16n').start(0);
 
   S.audio = { T, ctx, engineOut, master, meter, lim };
@@ -646,19 +651,95 @@ function tick(time) {
     askTick(bar, time);
   }
 
-  const b = S.chord.bass;
-  if (sib === 0) E('bass', b, time, Tone.Time('2n').toSeconds(), 0.8);
-  else if (sib === 10 && Math.random() < 0.3 + En * 0.4) E('bass', b + pick([7, 12]), time, Tone.Time('8n').toSeconds(), 0.5);
-  else if (sib === 6 && En > 0.5 && Math.random() < 0.35) E('bass', b, time, Tone.Time('16n').toSeconds(), 0.42);
+  if (mood().style === 'jazz') {
+    walkingBass(sib, bar, time, En);
+    jazzComp(sib, time, En);
+  } else {
+    const b = S.chord.bass;
+    if (sib === 0) E('bass', b, time, Tone.Time('2n').toSeconds(), 0.8);
+    else if (sib === 10 && Math.random() < 0.3 + En * 0.4) E('bass', b + pick([7, 12]), time, Tone.Time('8n').toSeconds(), 0.5);
+    else if (sib === 6 && En > 0.5 && Math.random() < 0.35) E('bass', b, time, Tone.Time('16n').toSeconds(), 0.42);
+  }
 
   if (S.drumLevel > 0.05) drums(sib, time, En, S.drumLevel);
 
   for (const ln of lanes.values()) laneTick(ln, sib, time);
 }
 
+// ------------------------------------------------------------------ jazz: walking bass and comping
+
+// Quarter notes when anyone's busy, half notes (a two-feel) when it's quiet. Each bar walks one of
+// the shapes bass players use (root, third, fifth going up; root, seventh, fifth coming down...) and
+// beat 4 leans into the next bar's root from a half step away.
+const BASS_LO = 33, BASS_HI = 55;
+const WALKS = [['R', '3', '5'], ['R', '2', '3'], ['R', '5', '6'], ['R', '7v', '5v'], ['R', '3', 'R8']];
+function walkLine(bar) {
+  const m = mood();
+  const c = S.chord;
+  const iv = QUALITY[c.q].map((i) => i % 12);
+  const third = iv.includes(3) ? 3 : 4;
+  const seventh = iv.includes(11) ? 11 : 10;
+  const prev = S.lastBass || c.bass;
+  let root = c.root % 12 + 36;
+  while (root - prev > 6 && root - 12 >= BASS_LO) root -= 12;
+  while (prev - root > 6 && root + 12 <= BASS_HI - 7) root += 12;
+  const shape = pick(WALKS.filter((w) => (w[1].endsWith('v') ? root - 5 >= BASS_LO : root + 12 <= BASS_HI)));
+  const at = { R: 0, 2: 2, 3: third, 5: 7, 6: 9, R8: 12, '7v': seventh - 12, '5v': -5 };
+  const line = shape.map((d) => root + at[d]);
+  // Beat 4: toward the root of the next bar (the next chord's, when it changes there)
+  const next = bar % 2 === 1 ? chordOf(m, m.prog[(S.chordIdx + 1) % m.prog.length]) : c;
+  let target = next.root % 12 + 36;
+  while (target - line[2] > 6) target -= 12;
+  while (line[2] - target > 6) target += 12;
+  line.push(target + (line[2] < target ? -1 : 1));
+  return line;
+}
+function walkingBass(sib, bar, time, En) {
+  if (sib % 4 !== 0) return;
+  const beat = sib / 4;
+  const walking = En > 0.35 || [...lanes.values()].some((l) => l.busy && !l.off);
+  if (beat === 0) S.walk = walkLine(bar);
+  if (!S.walk || (!walking && beat % 2 === 1)) return;
+  const note = clamp(S.walk[beat], BASS_LO, BASS_HI);
+  S.lastBass = note;
+  const quarter = Tone.Time('4n').toSeconds();
+  E('bass', note, time, walking ? quarter * 0.92 : quarter * 1.9, beat === 0 ? 0.74 : 0.6);
+}
+
+// Rootless voicings (no root: the bass has it) on a different pattern each bar: the Charleston
+// (1, the and of 2) and its cousins. A busy room comps a little more.
+const COMPS = [[0, 6], [6, 14], [4, 10], [0, 10], [2, 8], [0, 6, 12]];
+function jazzComp(sib, time, En) {
+  if (sib === 0) S.compPattern = Math.random() < 0.15 + En * 0.25 ? pick(COMPS).concat([pick([10, 14])]) : pick(COMPS);
+  if (!S.compPattern || !S.compPattern.includes(sib)) return;
+  const c = S.chord;
+  const voicing = [...new Set(QUALITY[c.q].filter((i) => i % 12 !== 0).map((i) => fold(c.root + i, 55, 71)))].sort((a, b) => a - b).slice(0, 4);
+  const dur = Tone.Time('8n').toSeconds() * (sib === 0 ? 1.8 : 1.1);
+  const vel = (sib === 0 ? 0.42 : 0.34) + En * 0.1;
+  if (S.engine && typeof S.engine.comp === 'function') E('comp', voicing, time, dur, vel);
+  else E('pad', voicing, time, dur, vel * 0.8, false);
+}
+
+// A kind the engine doesn't have falls back to one it does (a ride to a hat, a cross-stick to a rim)
+const FALLBACK = { ride: 'hat', stick: 'rim' };
+const drumKind = (k) => (FALLBACK[k] && !(S.engine && S.engine.drumKinds && S.engine.drumKinds.includes(k)) ? FALLBACK[k] : k);
+
 function drums(sib, time, En, lvl) {
   const style = mood().drums;
-  const hit = (kind, v, m) => E('drum', kind, time, v * lvl, m);
+  const hit = (kind, v, m) => E('drum', drumKind(kind), time, v * lvl, m);
+  if (style === 'jazz') {
+    // Ride: spang-a-lang (every beat, and the swung eighth before 2 and 4)
+    if (sib % 4 === 0) hit('ride', sib === 0 ? 0.42 : 0.34);
+    if (sib === 6 || sib === 14) hit('ride', 0.24);
+    // Hi-hat foot and a cross-stick on 2 and 4; a jazz-hop kick on 1 and the and of 3
+    if (sib === 4 || sib === 12) { hit('hat', 0.2); hit('stick', 0.5); }
+    if (sib === 0) hit('kick', 0.72);
+    if (sib === 10 && Math.random() < 0.6) hit('kick', 0.48);
+    if (sib === 7 && En > 0.5 && Math.random() < 0.25) hit('kick', 0.32);
+    // Brushes: ghost notes on the off eighths
+    if (sib % 4 === 2 && Math.random() < 0.2 + En * 0.2) hit('snare', 0.09);
+    return;
+  }
   if (style === 'war') {
     const low = fold(mood().tonic, 33, 44);
     if (sib === 0) hit('tom', 0.95, low);
@@ -732,7 +813,8 @@ function changeChord(time) {
   let home = false;
   if (S.landHome) { S.chord = chordOf(m, m.home); S.landHome = false; home = true; }
   else { S.chordIdx = (S.chordIdx + 1) % m.prog.length; S.chord = chordOf(m, m.prog[S.chordIdx]); }
-  E('pad', S.chord.pad, time, Tone.Time('2m').toSeconds() - 0.1, home ? 0.6 : 0.45, home);
+  // A trio has no string pad: under jazz it's a soft bed, and the piano comps the chord
+  E('pad', S.chord.pad, time, Tone.Time('2m').toSeconds() - 0.1, (home ? 0.6 : 0.45) * (m.style === 'jazz' ? 0.35 : 1), home);
   for (const ln of lanes.values()) ln.pool = poolFor(m, S.chord, ln.timbre);
   if (S.sourOn) { S.sourMidi = sourMidi(); E('sour', 'move', S.sourMidi, time); }
   const name = S.chord.name;
@@ -746,6 +828,7 @@ function applyMood(key, time) {
   const m = mood();
   S.audio.T.bpm.rampTo(m.bpm, 4, time);
   S.audio.T.swing = m.swing;
+  S.audio.T.swingSubdivision = m.swingSub || '16n';
   Tone.getDraw().schedule(showMood, time);
 }
 

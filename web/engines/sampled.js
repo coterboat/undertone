@@ -44,6 +44,13 @@ window.UndertoneEngines.add({
         inst.drums = sm.DrumMachine(ctx, { instrument: 'LM-2', destination: channel(io, 1.0, { dry: 1, rv: 0.1 }) })
         await Promise.all(Object.values(inst).map((i) => i.ready))
         drumNames = inst.drums.getSampleNames ? inst.drums.getSampleNames() : []
+        // Jazz comping on a Rhodes (General MIDI electric piano 1; smplr's CP80 set has missing samples).
+        // Loaded on the side: until it's in (or if it never comes), the Wurlitzer comps instead, so the
+        // engine never waits on it or breaks over it
+        try {
+          const rhodes = sm.Soundfont(ctx, { instrument: 'electric_piano_1', destination: channel(io, 0.9, { dry: 1, rv: 0.3, ec: 0.05 }) })
+          rhodes.ready.then(() => { inst.comp = rhodes }).catch(() => {})
+        } catch {}
 
         texture = makeTexture(io)
         drone = makeDrone(io, fx.send)
@@ -68,11 +75,18 @@ window.UndertoneEngines.add({
         const name = kind === 'kick' ? pickDrum('kick')
           : kind === 'snare' ? pickDrum('snare-m', 'snare-h', 'snare')
           : kind === 'hat' ? pickDrum('hhclosed-short', 'hhclosed')
+          : kind === 'ride' ? pickDrum('ride', 'crash', 'hhopen')
+          : kind === 'stick' ? pickDrum('stick-m', 'stick-h', 'stick-l', 'snare-l')
           : kind === 'tom' ? pickDrum(m && m < 40 ? 'tom-l' : 'tom-m', 'conga-l', 'kick-alt')
           : pickDrum('snare-l', 'cabasa')
-        inst.drums.start({ note: name, velocity: v127(vel * (kind === 'hat' ? 0.7 : 1)), time })
+        inst.drums.start({ note: name, velocity: v127(vel * (kind === 'hat' ? 0.7 : kind === 'ride' ? 0.6 : 1)), time })
       },
       bell(m, time, dur, vel) { inst.bell.start({ note: m, velocity: v127(vel), time, duration: dur * 2 }) },
+      comp(notes, time, dur, vel) {
+        const piano = inst.comp || inst.keys
+        for (const m of notes) piano.start({ note: m, velocity: v127(vel * (inst.comp ? 1 : 0.8)), time, duration: dur })
+      },
+      drumKinds: ['kick', 'snare', 'hat', 'tom', 'rim', 'ride', 'stick'],
       sour(state, m, time, to) { sour[state](m, time, to) },
       drone(level, tonic, time) { drone.set(level, tonic, time) },
       texture(a) { texture.set(a) },

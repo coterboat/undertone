@@ -8,7 +8,7 @@ window.UndertoneEngines.add({
   local: false,
   create() {
     const { hz, stereo, makeFx, makeTexture, makeDrone, makeSour } = window.UndertoneEngines.kit
-    let T, fx, pad, padFilter, padChorus, bass, bassDuck, bell, drumBus, kick, snare, hat, tom, texture, drone, sour
+    let T, fx, pad, padFilter, padChorus, bass, bassDuck, bell, drumBus, kick, snare, hat, tom, ride, comp, texture, drone, sour
     const voices = {}
     const nodes = []
     const keep = (...n) => (nodes.push(...n), n[0])
@@ -123,6 +123,24 @@ window.UndertoneEngines.add({
         tom.volume.value = -8
         tom.connect(drumBus)
         tom.connect(keep(new Tone.Gain(0.35)).connect(fx.verbIn))
+        // Jazz: a ride, kept airy above 3.5 kHz
+        const rideHp = keep(new Tone.Filter(3500, 'highpass'))
+        ride = keep(new Tone.MetalSynth({ envelope: { attack: 0.001, decay: 1.1, release: 0.4 }, harmonicity: 5.1, modulationIndex: 24, resonance: 5200, octaves: 1.2 }))
+        ride.volume.value = -27
+        ride.chain(rideHp, drumBus)
+
+        // Jazz comping: a warm FM electric piano, apart from the lanes' keys
+        comp = keep(new Tone.PolySynth(Tone.FMSynth, {
+          harmonicity: 1, modulationIndex: 3,
+          oscillator: { type: 'sine' }, modulation: { type: 'sine' },
+          envelope: { attack: 0.004, decay: 1.6, sustain: 0.2, release: 0.6 },
+          modulationEnvelope: { attack: 0.002, decay: 0.5, sustain: 0.1, release: 0.4 },
+        }))
+        comp.maxPolyphony = 16
+        comp.volume.value = -14
+        const compTrem = keep(new Tone.Tremolo({ frequency: 3.2, depth: 0.18 }).start())
+        comp.connect(compTrem)
+        send(compTrem, { dry: 1, rv: 0.3, ec: 0.06 })
 
         for (const t of ['keys', 'pluck', 'mallet', 'cello']) voices[t] = makeVoice(t)
         texture = makeTexture(io)
@@ -136,6 +154,8 @@ window.UndertoneEngines.add({
       pad(notes, time, dur, vel) { pad.triggerAttackRelease(notes.map(hz), dur, time, vel) },
       bass(m, time, dur, vel) { bass.triggerAttackRelease(hz(m), dur, time, vel) },
       voice(timbre, m, time, dur, vel) { voices[timbre].triggerAttackRelease(hz(m), dur, time, vel) },
+      comp(notes, time, dur, vel) { comp.triggerAttackRelease(notes.map(hz), dur, time, vel) },
+      drumKinds: ['kick', 'snare', 'hat', 'tom', 'rim', 'ride'],
       drum(kind, time, vel, m) {
         // The kick holds the grid; hats and snare sit a few ms behind it and never hit the same
         // twice, so the groove breathes instead of ticking
@@ -149,6 +169,7 @@ window.UndertoneEngines.add({
           g.setTargetAtTime(0.45, time, 0.004)
           g.setTargetAtTime(1, time + 0.03, 0.06)
         } else if (kind === 'tom') tom.triggerAttackRelease(hz(m || 38), '4n', time, vel)
+        else if (kind === 'ride') ride.triggerAttackRelease(320, '8n', late(0, 4), drift(vel, 0.15))
         else if (kind === 'hat') hat.triggerAttackRelease('32n', late(0, 7), drift(vel, 0.25))
         else snare.triggerAttackRelease('32n', late(3, 10), drift(kind === 'rim' ? vel * 0.5 : vel, 0.12))
       },
