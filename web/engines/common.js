@@ -12,7 +12,7 @@
 //   drum(kind, time, vel, midi)            kind: kick | snare | hat | tom | rim
 //   bell(midi, time, dur, vel)
 //   sour(state, midi, time, to)            state: on | move | off (to = the note it resolves into)
-//   drone(level, tonic, time)              level 0..1
+//   drone(level, tonic, time)              level 0..1 (the conductor no longer uses it: waiting questions are asked with bells)
 //   texture(amount)                        tape hiss and vinyl, 0..1
 //   energy(e, time)                        0..1, how busy the sessions are
 //   level(amount)                          only engines that play outside the page (SuperCollider)

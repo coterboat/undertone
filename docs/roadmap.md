@@ -1,6 +1,6 @@
 # undertone roadmap
 
-Updated 2026-10-04, at 0.7.0. What's built, what's next and in what order, and what waits on purpose. The day-to-day threads live in coter-kit's brain; this is the plan they hang off. Change it when the order changes.
+Updated 2026-10-04, at 0.7.1. What's built, what's next and in what order, and what waits on purpose. The day-to-day threads live in coter-kit's brain; this is the plan they hang off. Change it when the order changes.
 
 ## Where it is
 
@@ -16,7 +16,8 @@ Updated 2026-10-04, at 0.7.0. What's built, what's next and in what order, and w
 | 0.6.1 | A design pass on the page: commits and pushes marked in the lane that made them, hover tips on the score, a compact engine switch so the score sits near the top |
 | 0.6.2 | The page on your phone: the bridge also answers names listed in `hosts.json` (the Mac under `tailscale serve`), and the page it serves there runs live |
 | 0.6.3 (`2124e76`) | The pops: buses pinned to stereo (a mono kick plus stereo noise flipped the drum bus's channel count on every hit, and each flip popped through the filters after it). Synth: softer snare, rounder kick and mallet, the kick ducks the bass, laid-back hats. The ears record on the audio thread |
-| 0.7.0 | GitHub Actions as an outside source (builds heard starting and finishing, a red workflow holds `ci:<workflow>`); tests that fail instead of hanging; the event log keeps its order through a stop |
+| 0.7.0 (`14a785d`) | GitHub Actions as an outside source (builds heard starting and finishing, a red workflow holds `ci:<workflow>`); tests that fail instead of hanging; the event log keeps its order through a stop |
+| 0.7.1 | Questions waiting on you are asked, not hummed: a soft rising bell figure every so often instead of the drone (which never stopped and sounded like a lawnmower) |
 
 ## Now
 

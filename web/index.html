@@ -325,8 +325,8 @@ tr.attn td:first-child { color: var(--call); }
         <button class="pad bad" type="button" data-ev="fail"><b>Break build</b><span>sour note</span></button>
         <button class="pad good" type="button" data-ev="pass"><b>Fix build</b><span>resolves it</span></button>
         <button class="pad" type="button" data-ev="checklist"><b>Step done</b><span>bell climbs</span></button>
-        <button class="pad" type="button" data-ev="waiting.open"><b>Ask owner</b><span>drone +1</span></button>
-        <button class="pad" type="button" data-ev="waiting.resolve"><b>Answered</b><span>drone −1</span></button>
+        <button class="pad" type="button" data-ev="waiting.open"><b>Ask owner</b><span>asks once</span></button>
+        <button class="pad" type="button" data-ev="waiting.resolve"><b>Answered</b><span>settles</span></button>
       </div>
     </div>
 
@@ -353,7 +353,7 @@ tr.attn td:first-child { color: var(--call); }
         <tbody>
           <tr class="attn"><td>Needs your OK</td><td>a permission prompt; an idle session</td><td>That session's call, ending on a rising note. A permission prompt asks again softly every minute (three times at most) until you answer; an idle session asks once.</td></tr>
           <tr class="attn"><td>Your move</td><td>Claude finishes a turn</td><td>That session's call, settling on the chord's root. Each session has its own three-note call, so you learn who's talking.</td></tr>
-          <tr class="attn"><td>Waiting on you</td><td>coter-kit waiting notes, every project</td><td>A low drone, one layer per open question, under everything until you answer.</td></tr>
+          <tr class="attn"><td>Waiting on you</td><td>coter-kit waiting notes, every project</td><td>A soft bell figure that rises and stays open, like a question, every so often: more often and longer the more there are. A new one asks at once; an answer settles.</td></tr>
           <tr class="attn"><td>Something breaks</td><td>a failing test, typecheck, lint or build; coter-kit checks blocking a stop; production errors</td><td>The session's call with its last note flat, then a sour note held over every chord. Each kind has its own: tests a tritone, typecheck a high grinding second, lint a softer seventh, build a low second, production errors a low rumble. The score names it.</td></tr>
           <tr><td>It's fixed</td><td>the same check passes (a different check passing doesn't count)</td><td>The session's call, settled, and the sour note slides into the chord.</td></tr>
           <tr><td>Commit or push</td><td><code>git commit</code>, <code>git push</code> in Bash</td><td>The progression resolves to the home chord, with bells in that session's lane. A commit and push in one go count once.</td></tr>
@@ -474,6 +474,7 @@ const S = {
   chord: null,
   landHome: false,
   step: 0,
+  nextAskBar: 2, // the first ask comes a couple of bars in
   drumsOn: saved.drums !== false,
   callsOn: saved.calls !== false,
   drumLevel: 0,
@@ -581,7 +582,6 @@ async function startEngine(id) {
   setEngineStatus('');
   const now = Tone.now() + 0.05;
   E('texture', S.texture);
-  E('drone', droneLevel(), mood().tonic, now);
   E('energy', energy(), now, mood().padHz);
   if (S.sourOn) E('sour', 'on', S.sourMidi, now);
   // A pad right away, so a switch is heard at once instead of at the next chord
@@ -643,6 +643,7 @@ function tick(time) {
     const want = S.drumsOn && (busy || En > 0.35) ? 1 : 0;
     S.drumLevel = clamp(S.drumLevel + (want - S.drumLevel) * 0.35, 0, 1);
     E('energy', En, time, mood().padHz);
+    askTick(bar, time);
   }
 
   const b = S.chord.bass;
@@ -745,7 +746,6 @@ function applyMood(key, time) {
   const m = mood();
   S.audio.T.bpm.rampTo(m.bpm, 4, time);
   S.audio.T.swing = m.swing;
-  E('drone', droneLevel(), m.tonic, time);
   Tone.getDraw().schedule(showMood, time);
 }
 
@@ -854,12 +854,37 @@ function waitingTotals() {
   const total = Object.values(by).reduce((a, b) => a + b, 0);
   return { by, total };
 }
-const droneLevel = () => Math.min(waitingTotals().total, 6) / 6;
+// Questions waiting on you are asked, not hummed: every so often a soft rising bell figure that
+// stops on an open note, the way a question's voice goes up. More questions, more often and longer
+// (2, 3 or 4 notes). It replaced a drone that grew with the count: a low tone that never stopped,
+// at full strength from six questions on, which sounded like a lawnmower and said nothing past "a lot".
+const askEvery = (n) => (n >= 10 ? 16 : n >= 4 ? 24 : 32); // bars between asks
+const askLength = (n) => (n >= 10 ? 4 : n >= 4 ? 3 : 2);
+
+function playAsk(time, total) {
+  if (!S.audio || !S.callsOn || !total) return;
+  const m = mood();
+  const top = fold(m.tonic + 14, 74, 86); // the 9th: open, unresolved
+  const notes = [top - 7, top - 5, top, top].slice(-askLength(total)); // 5th, 6th, 9th (and the 9th again, softer)
+  const eighth = Tone.Time('8n').toSeconds();
+  notes.forEach((n, i) => {
+    const last = i === notes.length - 1;
+    E('bell', n, time + i * eighth * (last ? 1.5 : 1), last ? 1.6 : 0.5, (last && notes.length === 4 ? 0.14 : 0.24));
+  });
+  vis.marks.push({ t: wall(), type: 'ask', lane: null, n: total });
+}
+
+function askTick(bar, time) {
+  const { total } = waitingTotals();
+  if (!total) { S.nextAskBar = bar + 2; return; }
+  if (bar < S.nextAskBar) return;
+  S.nextAskBar = bar + askEvery(total);
+  playAsk(time, total);
+}
 
 function updateDrone() {
   const { total } = waitingTotals();
   vis.waits.push({ t: wall(), n: total });
-  if (S.audio) E('drone', droneLevel(), mood().tonic, Tone.now() + 0.05);
   renderProjectsSoon();
 }
 
@@ -1052,6 +1077,9 @@ function ingest(e, source) {
     }
     case 'waiting.open':
       if (source !== 'live') { S.waitLocal[ln.project] = (S.waitLocal[ln.project] || 0) + 1; updateDrone(); }
+      // A new question asks at once, then waits its turn with the rest
+      if (!ln.off && S.playing) playAsk(Tone.now() + 0.1, Math.max(1, waitingTotals().total));
+      if (S.audio) S.nextAskBar = Math.floor(S.step / 16) + askEvery(waitingTotals().total);
       break;
     case 'waiting.resolve':
       if (source !== 'live') { S.waitLocal[ln.project] = Math.max(0, (S.waitLocal[ln.project] || 0) - 1); updateDrone(); }
@@ -1769,6 +1797,15 @@ function draw() {
       g.font = FONT;
       continue;
     }
+    if (k.type === 'ask') {
+      // An ask: a small rise on the waiting band, where the questions are
+      g.strokeStyle = colors.drone;
+      g.lineWidth = 1.5;
+      g.beginPath(); g.moveTo(x - 4, H - 15); g.lineTo(x, H - 20); g.lineTo(x + 4, H - 15); g.stroke();
+      g.lineWidth = 1;
+      hit(x - 6, H - 23, x + 6, H - 11, 'asked: ' + k.n + ' question' + (k.n === 1 ? '' : 's') + ' waiting on you, ' + ago(now - k.t));
+      continue;
+    }
     if (r == null) continue;
     const y = top + r * bandH;
     const name = displayLabel(live[r]);
@@ -1790,7 +1827,7 @@ function draw() {
     }
   }
 
-  // Waiting-on-you drone: a band along the bottom, thicker with each open question (six at most)
+  // Waiting on you: a band along the bottom, thicker with each open question (six at most)
   const baseY = H - 5;
   const thick = (n) => Math.min(n, 6) * 2;
   g.fillStyle = colors.drone;
