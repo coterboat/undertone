@@ -1,6 +1,6 @@
 # undertone roadmap
 
-Updated 2026-10-04, at 0.10.0. What's built, what's next and in what order, and what waits on purpose. The day-to-day threads live in coter-kit's brain; this is the plan they hang off. Change it when the order changes.
+Updated 2026-10-04, at 0.11.0. What's built, what's next and in what order, and what waits on purpose. The day-to-day threads live in coter-kit's brain; this is the plan they hang off. Change it when the order changes.
 
 ## Where it is
 
@@ -20,7 +20,8 @@ Updated 2026-10-04, at 0.10.0. What's built, what's next and in what order, and 
 | 0.7.1 (`8caa574`) | Questions waiting on you are asked, not hummed: a soft rising bell figure every so often instead of the drone (which never stopped and sounded like a lawnmower) |
 | 0.8.0 (`c59ad5a`) | Styles: a mood can carry its own band and groove. Blue hour, a jazz-hop trio (walking bass, ride and cross-stick, rootless piano comping, swung eighths), for undertone, coter-kit and home by default |
 | 0.9.0 (`0abd3d1`) | Afterhours, house as the second style (four on the floor, off-beat bass, stabs, the pad pumping with the kick), for home by default; a brighter walking bass on Synth and a lighter pad under jazz (Gemini's read) |
-| 0.10.0 | Far shore (after Mass Effect 1, docs/space-styles.md): tiers, a pulse only while a turn runs, sessions as pulse waves, one dark hall; Blue hour made consonant and taken off the defaults |
+| 0.10.0 (`44e4b2d`) | Far shore (after Mass Effect 1, docs/space-styles.md): tiers, a pulse only while a turn runs, sessions as pulse waves, one dark hall; Blue hour made consonant and taken off the defaults |
+| 0.11.0 | Deep field (after Stellaris): strings, an ostinato over a pedal, the organ only on a commit, for coter-kit by default; a mood changed while paused or loading now brings its own tempo and swing |
 
 ## Now
 

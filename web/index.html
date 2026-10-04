@@ -434,6 +434,10 @@ const MOODS = {
   // plays only while a turn runs, a dark hall, every session a pulse wave in its own register. No drums
   // but a tick in the full tier. Almost nothing moves.
   farshore: { name: 'Far shore', label: 'E minor', tonic: 40, sharp: true, bpm: 100, swing: 0, scale: [0, 2, 3, 7, 10], prog: [[0, 'sus2'], [10, 'sus2'], [8, 'add9'], [7, 'm7']], home: [0, 'm(add9)'], drums: 'none', style: 'farshore', padHz: 800, chordLanes: true },
+  // Deep field (after Stellaris; docs/space-styles.md): D Aeolian, i-bVII-bVI-v with no leading tone, so
+  // nothing pulls toward an ending; strings, a sine-and-saw ostinato over a pedal; the organ rises only
+  // when you commit.
+  deepfield: { name: 'Deep field', label: 'D minor', tonic: 50, sharp: false, bpm: 90, swing: 0, scale: [0, 2, 3, 7, 10], prog: [[0, 'm(add9)'], [10, 'add9'], [8, 'maj7'], [7, 'm7']], home: [0, 'm(add9)'], drums: 'none', style: 'deepfield', padHz: 2000, chordLanes: true },
   // A style, not just a key: a jazz-hop trio, walking bass, ride and cross-stick, piano comping.
   // Kept consonant on purpose (10-4: the first cut, with a 7b9, a 13, chromatic bass approaches, full
   // triplet swing and the whole scale for the lanes, put Alex on edge): every chord stays in the key,
@@ -448,6 +452,7 @@ const moodFor = (project) => {
   if (/wallst|bets|trad|alpaca/.test(p)) return 'ticker';
   if (/home/.test(p)) return 'house';
   if (/undertone/.test(p)) return 'farshore';
+  if (/coter/.test(p)) return 'deepfield';
   return 'lofi';
 };
 const noteName = (m, sharp) => (sharp ? SHARPS : FLATS)[((m % 12) + 12) % 12];
@@ -674,6 +679,8 @@ function tick(time) {
     houseStabs(sib, time, En);
   } else if (mood().style === 'farshore') {
     farShore(sib, bar, time);
+  } else if (mood().style === 'deepfield') {
+    deepField(sib, bar, time);
   } else {
     const b = S.chord.bass;
     if (sib === 0) E('bass', b, time, Tone.Time('2n').toSeconds(), 0.8);
@@ -751,6 +758,9 @@ function jazzComp(sib, time, En) {
 // or out over two bars. Calls, sour notes and asks never wait for a tier: they play at once.
 const TIER_LAYERS = {
   farshore: (t, busy) => ({ pulse: t >= 1 && busy, accent: t >= 1, tick: t >= 2 }),
+  // Busy never makes Deep field erupt (a state isn't a jump scare): the full tier only thickens the
+  // ostinato; the organ and the low drum come in on a commit, for four bars
+  deepfield: (t, busy, surge) => ({ ostinato: t >= 1, pedal: t >= 1, thicken: t >= 2, organ: surge, boom: surge }),
 };
 function updateTier(bar, En) {
   const busy = [...lanes.values()].some((l) => l.busy && !l.off);
@@ -759,7 +769,7 @@ function updateTier(bar, En) {
   if (target > S.tier && bar - S.tierAt >= 2) { S.tier += 1; S.tierAt = bar; S.tierLow = 0; E('tier', S.tier); }
   else if (target < S.tier) { if (++S.tierLow >= 8) { S.tier -= 1; S.tierAt = bar; S.tierLow = 0; E('tier', S.tier); } }
   else S.tierLow = 0;
-  const want = (TIER_LAYERS[mood().style] || (() => ({})))(S.tier, busy);
+  const want = (TIER_LAYERS[mood().style] || (() => ({})))(S.tier, busy, S.surgeUntil > bar);
   for (const k of new Set([...Object.keys(want), ...Object.keys(S.layers)])) S.layers[k] = clamp((S.layers[k] || 0) + (want[k] ? 0.5 : -0.5), 0, 1);
 }
 
@@ -768,6 +778,10 @@ const LAYER_FALLBACK = {
   pulse: (n, t, d, v) => E('bass', n[0], t, d, v),
   accent: (n, t, d, v) => E('voice', 'pluck', n[0], t, d, v),
   tick: (n, t, d, v) => E('drum', 'hat', t, v),
+  ostinato: (n, t, d, v) => E('voice', 'mallet', n[0], t, d, v),
+  pedal: (n, t, d, v) => E('bass', n[0], t, d, v),
+  organ: (n, t, d, v) => E('pad', n, t, d, v * 0.6, false),
+  boom: (n, t, d, v) => E('drum', 'tom', t, v, n[0]),
 };
 function layer(name, notes, time, dur, vel) {
   if (vel <= 0.001) return;
@@ -788,6 +802,38 @@ function farShore(sib, bar, time) {
   if (sib % 2 === 0 && L.pulse > 0 && bar % 4 !== 3) layer('pulse', [fold(m.tonic, 33, 40)], time, 0.2, (sib === 0 ? 0.62 : 0.5) * L.pulse);
   if (bar % 2 === 1 && sib === 14 && L.accent > 0) layer('accent', [fold(S.chord.root + 14, 64, 76)], time, 0.18, 0.3 * L.accent);
   if ((sib === 4 || sib === 12) && L.tick > 0) layer('tick', [], time, 0.035, 0.4 * L.tick);
+}
+
+// ------------------------------------------------------------------ Deep field
+
+// The ostinato: eighths on the chord's tones, one of three equivalent figures, changing every four
+// bars, so it varies without meaning anything new. The full tier doubles it softly an octave up.
+const OSTINATI = [[0, 1, 2, 1, 3, 1, 2, 1], [0, 2, 1, 2, 0, 2, 1, 3], [1, 0, 2, 0, 3, 0, 2, 0]];
+function deepField(sib, bar, time) {
+  const m = mood();
+  const c = S.chord;
+  const L = S.layers;
+  if (sib % 2 === 0 && L.ostinato > 0) {
+    const voicing = [...new Set(QUALITY[c.q].map((i) => fold(c.root + i, 62, 79)))].sort((a, b) => a - b);
+    const fig = OSTINATI[Math.floor(bar / 4) % OSTINATI.length];
+    const n = voicing[Math.min(fig[sib / 2], voicing.length - 1)];
+    const eighth = Tone.Time('8n').toSeconds();
+    layer('ostinato', [n], time, eighth * 0.9, (sib === 0 ? 0.34 : 0.28) * L.ostinato);
+    if (L.thicken > 0 && sib % 4 === 2) layer('ostinato', [n + 12], time, eighth * 0.9, 0.14 * L.thicken);
+  }
+  if (sib === 0) {
+    // The pedal holds the key's root under everything but the v chord, rests one bar in four, and now and
+    // then moves to the fifth (Codex: a pedal that never lets up tires the ear)
+    if (L.pedal > 0 && bar % 4 !== 3) {
+      const root = c.root % 12 === (m.tonic + 7) % 12 ? c.root : bar % 8 === 5 ? m.tonic + 7 : m.tonic;
+      layer('pedal', [fold(root, 38, 49)], time, Tone.Time('1m').toSeconds() * 0.95, 0.5 * L.pedal);
+    }
+    if (L.organ > 0) {
+      const voicing = [...new Set(QUALITY[c.q].map((i) => fold(c.root + i, 50, 74)))].sort((a, b) => a - b);
+      layer('organ', voicing, time, Tone.Time('1m').toSeconds() * 0.98, 0.32 * L.organ);
+    }
+    if (L.boom > 0 && bar % 2 === 0) layer('boom', [fold(m.tonic, 26, 37)], time, 1.2, 0.4 * L.boom);
+  }
 }
 
 // ------------------------------------------------------------------ house: the pump and the stabs
@@ -912,7 +958,10 @@ function changeChord(time) {
   S.pendingMood = null;
   const m = mood();
   let home = false;
-  if (S.landHome) { S.chord = chordOf(m, m.home); S.landHome = false; home = true; }
+  if (S.landHome) {
+    S.chord = chordOf(m, m.home); S.landHome = false; home = true;
+    if (m.style === 'deepfield') S.surgeUntil = Math.floor(S.step / 16) + 4; // the organ rises on a commit
+  }
   else { S.chordIdx = (S.chordIdx + 1) % m.prog.length; S.chord = chordOf(m, m.prog[S.chordIdx]); }
   // A trio has no string pad: under jazz it's a soft bed, and the piano comps the chord
   E('pad', S.chord.pad, time, Tone.Time('2m').toSeconds() - 0.1, (home ? 0.6 : 0.45) * (m.style === 'jazz' ? 0.22 : 1), home);
@@ -1302,10 +1351,22 @@ function pickLead() {
   setMood(S.leadNow ? moodOfProject(S.leadNow) : S.moodKey);
 }
 
+// Tempo, swing and the engine's style, straight to the mood's (no ramp): for when it changes while the
+// audio is built but not playing (paused, or a Sampled engine still loading after Play). Without this the
+// mood switched and the transport kept the old tempo and swing.
+function syncTransport() {
+  if (!S.audio) return;
+  const m = mood();
+  S.audio.T.bpm.value = m.bpm;
+  S.audio.T.swing = m.swing;
+  S.audio.T.swingSubdivision = m.swingSub || '16n';
+  E('style', m.style || 'lofi');
+}
+
 function setMood(key) {
   if (!MOODS[key]) return;
   if (!S.audio || !S.playing) {
-    if (key !== S.moodKey) { S.moodKey = key; S.chordIdx = -1; S.chord = chordOf(mood(), mood().prog[0]); }
+    if (key !== S.moodKey) { S.moodKey = key; S.chordIdx = -1; S.chord = chordOf(mood(), mood().prog[0]); syncTransport(); }
     showMood();
     return;
   }

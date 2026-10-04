@@ -7,12 +7,14 @@ window.UndertoneEngines.add({
   blurb: 'Tone.js, all synthesized. Warm FM keys, saw pads, no samples.',
   local: false,
   create() {
-    const { hz, stereo, makeFx, makeTexture, makeDrone, makeSour, makeFarShore } = window.UndertoneEngines.kit
+    const { hz, stereo, makeFx, makeTexture, makeDrone, makeSour, makeFarShore, makeDeepField } = window.UndertoneEngines.kit
     let T, fx, pad, padFilter, padChorus, padDuck, bass, bassDuck, bell, drumBus, kick, snare, hat, openhat, tom, ride, comp, texture, drone, sour
     let pumpDepth = 0
     // The space styles bring their own sounds (common.js), loaded the first time they play
-    let current = 'lofi', fs = null, fsLoading = null
-    const space = () => (current === 'farshore' ? fs : null)
+    let current = 'lofi'
+    const kits = {}, loading = {}
+    const KITS = { farshore: () => makeFarShore(T), deepfield: () => makeDeepField(T) }
+    const space = () => kits[current] || null
     const voices = {}
     const nodes = []
     const keep = (...n) => (nodes.push(...n), n[0])
@@ -158,7 +160,7 @@ window.UndertoneEngines.add({
         sour = makeSour(io, send, { volume: -15 })
       },
       dispose() {
-        if (fs) fs.dispose()
+        for (const k of Object.values(kits)) k.dispose()
         for (const n of nodes) { try { n.dispose() } catch {} }
         for (const x of [fx, texture, drone, sour]) if (x) x.dispose()
       },
@@ -166,14 +168,14 @@ window.UndertoneEngines.add({
       bass(m, time, dur, vel) { bass.triggerAttackRelease(hz(m), dur, time, vel) },
       voice(timbre, m, time, dur, vel) { if (space()) return space().voice(timbre, m, time, dur, vel); voices[timbre].triggerAttackRelease(hz(m), dur, time, vel) },
       layer(name, notes, time, dur, vel) { return space() ? space().layer(name, notes, time, dur, vel) : false },
-      tier(t) { if (fs) fs.tier(t) },
+      tier(t) { for (const k of Object.values(kits)) k.tier(t) },
       comp(notes, time, dur, vel) { comp.triggerAttackRelease(notes.map(hz), dur, time, vel) },
       drumKinds: ['kick', 'snare', 'hat', 'tom', 'rim', 'ride', 'openhat'],
       // What the conductor's style needs from the sound: a walking bass that speaks its notes (a
       // brighter filter), house's pump
       style(name) {
         current = name
-        if (name === 'farshore' && !fs && !fsLoading) fsLoading = makeFarShore(T).then((k) => { fs = k }).catch(() => { fsLoading = null })
+        if (KITS[name] && !kits[name] && !loading[name]) loading[name] = KITS[name]().then((k) => { kits[name] = k }).catch(() => { loading[name] = null })
         bass.filterEnvelope.baseFrequency = name === 'jazz' ? 210 : name === 'house' ? 140 : 110
         bass.filterEnvelope.octaves = name === 'jazz' ? 2.7 : 2.2
         pumpDepth = name === 'house' ? 0.55 : 0

@@ -207,6 +207,107 @@
     }
   }
 
+  // Deep field (after Stellaris; docs/space-styles.md): strings, an organ that only rises on a commit,
+  // a sine-and-saw ostinato over a pedal, all in one big hall. Everything is synthesized and ready at
+  // once; given smplr (the Sampled engine), a real harp, celesta and cello take over the sessions' voices
+  // as each one loads (2-4 MB apiece, only when this style first plays). The strings and organ stay
+  // synthesized: smplr's sustained string samples clicked on audio-block boundaries (6 a minute,
+  // 0 with them muted, 0 with these), and Stellaris's own palette is mostly synths anyway.
+  async function makeDeepField(io, sm = null) {
+    const { Tone, out, ctx } = io
+    const nodes = []
+    const keep = (n) => (nodes.push(n), n)
+    const hall = keep(new Tone.Reverb({ decay: 6.5, preDelay: 0.05, wet: 1 }))
+    await hall.generate()
+    const level = keep(stereo(new Tone.Gain(1))) // measured: at 1.4 it ran 3 dB over the other styles
+    level.connect(out)
+    const hallIn = keep(stereo(new Tone.Gain(0.35)))
+    hallIn.chain(hall, keep(new Tone.Filter(5000, 'lowpass')), level)
+    const dry = keep(stereo(new Tone.Gain(1)))
+    dry.connect(level)
+    const route = (node, send) => {
+      node.connect(dry)
+      if (send) { const g = keep(new Tone.Gain(send)); node.connect(g); g.connect(hallIn) }
+    }
+    const poly = (voice, opts, volume, send, ...filters) => {
+      const v = keep(new Tone.PolySynth(voice, opts))
+      v.maxPolyphony = 12
+      v.volume.value = volume
+      const chain = filters.map((f) => keep(f))
+      if (chain.length) { v.chain(...chain); route(chain[chain.length - 1], send) } else route(v, send)
+      return v
+    }
+
+    const strings = poly(Tone.Synth, { oscillator: { type: 'fatsawtooth', count: 3, spread: 24 }, envelope: { attack: 1.2, decay: 1, sustain: 0.8, release: 2.5 } }, -17, 0.8,
+      new Tone.Filter(120, 'highpass'), new Tone.Filter(2000, 'lowpass'))
+    const organ = poly(Tone.Synth, { oscillator: { type: 'custom', partials: [1, 0.5, 0.3, 0.2, 0.1] }, envelope: { attack: 0.25, decay: 0.5, sustain: 0.8, release: 1.5 } }, -22, 0.6,
+      new Tone.Filter(3000, 'lowpass'))
+    // "Some sine and sawtooth waveforms": the ostinato is a sine with a quiet saw under it, kept dark
+    const ostLp = keep(new Tone.Filter(1200, 'lowpass'))
+    route(ostLp, 0.35)
+    const ost = keep(new Tone.PolySynth(Tone.Synth, { oscillator: { type: 'sine' }, envelope: { attack: 0.01, decay: 0.4, sustain: 0.1, release: 0.4 } }))
+    const ostSaw = keep(new Tone.PolySynth(Tone.Synth, { oscillator: { type: 'sawtooth' }, envelope: { attack: 0.01, decay: 0.3, sustain: 0.05, release: 0.3 } }))
+    ost.volume.value = -18
+    ostSaw.volume.value = -30
+    ost.connect(ostLp)
+    ostSaw.connect(ostLp)
+    const pedalLp = keep(new Tone.Filter(300, 'lowpass'))
+    route(pedalLp, 0.2)
+    const pedal = keep(new Tone.Synth({ oscillator: { type: 'sine' }, envelope: { attack: 0.4, decay: 0.5, sustain: 0.8, release: 1.5 } }))
+    pedal.volume.value = -16
+    pedal.connect(pedalLp)
+    const boom = keep(new Tone.MembraneSynth({ pitchDecay: 0.08, octaves: 2, envelope: { attack: 0.004, decay: 1.6, sustain: 0, release: 0.4 } }))
+    boom.volume.value = -16
+    route(boom, 0.5)
+    const voices = {
+      keys: poly(Tone.FMSynth, { harmonicity: 2, modulationIndex: 1, envelope: { attack: 0.005, decay: 1.2, sustain: 0, release: 0.8 } }, -14, 0.4),
+      pluck: poly(Tone.Synth, { oscillator: { type: 'triangle' }, envelope: { attack: 0.004, decay: 0.6, sustain: 0, release: 0.4 } }, -14, 0.4),
+      mallet: poly(Tone.FMSynth, { harmonicity: 3.5, modulationIndex: 2, envelope: { attack: 0.002, decay: 1.5, sustain: 0, release: 1 } }, -16, 0.5),
+      cello: poly(Tone.Synth, { oscillator: { type: 'fatsawtooth', count: 2, spread: 10 }, envelope: { attack: 0.15, decay: 1, sustain: 0.4, release: 0.8 } }, -18, 0.4, new Tone.Filter(1500, 'lowpass')),
+    }
+    const blip = poly(Tone.Synth, { oscillator: { type: 'sine' }, envelope: { attack: 0.004, decay: 0.7, sustain: 0, release: 0.5 } }, -12, 0.4)
+
+    // Real instruments, each replacing its synthesized stand-in once it's loaded
+    const real = {}
+    if (sm && ctx) {
+      const load = (key, instrument, lvl, send) => {
+        const g = keep(new Tone.Gain(lvl))
+        route(g, send)
+        try {
+          const i = sm.Soundfont(ctx, { instrument, destination: g.input })
+          i.ready.then(() => { real[key] = i }).catch(() => {})
+        } catch {}
+      }
+      load('harp', 'orchestral_harp', 0.9, 0.4)
+      load('celesta', 'celesta', 0.8, 0.5)
+      load('cello', 'cello', 0.6, 0.4)
+    }
+    const v127 = (v) => Math.max(1, Math.min(127, Math.round(v * 127)))
+    const play = (inst, notes, time, dur, vel) => { for (const m of notes) inst.start({ note: m, velocity: v127(vel), time, duration: dur }) }
+
+    return {
+      pad(notes, time, dur, vel) { strings.triggerAttackRelease(notes.map(hz), dur, time, vel) },
+      voice(timbre, m, time, dur, vel) {
+        const r = timbre === 'mallet' ? real.celesta : timbre === 'cello' ? real.cello : real.harp
+        if (r) play(r, [m], time, timbre === 'cello' ? dur * 2 : dur * 3, vel)
+        else (voices[timbre] || voices.keys).triggerAttackRelease(hz(m), dur, time, vel)
+      },
+      bell(m, time, dur, vel) { if (real.celesta) play(real.celesta, [m], time, dur * 2, vel); else blip.triggerAttackRelease(hz(m), Math.min(dur, 1.2), time, vel) },
+      layer(name, notes, time, dur, vel) {
+        if (name === 'ostinato') { ost.triggerAttackRelease(hz(notes[0]), dur, time, vel); ostSaw.triggerAttackRelease(hz(notes[0]), dur, time, vel); return true }
+        if (name === 'pedal') { pedal.triggerAttackRelease(hz(notes[0]), dur, time, vel); return true }
+        if (name === 'organ') { organ.triggerAttackRelease(notes.map(hz), dur, time, vel); return true }
+        if (name === 'boom') { boom.triggerAttackRelease(hz(notes[0]), '2n', time, vel); return true }
+        return false
+      },
+      tier(t) { hallIn.gain.rampTo([0.35, 0.25, 0.2][t] ?? 0.35, 2) },
+      dispose() {
+        for (const i of Object.values(real)) { try { i.stop() } catch {} }
+        for (const n of nodes) { try { n.dispose() } catch {} }
+      },
+    }
+  }
+
   function makeSour(io, send, { volume = -21 } = {}) {
     const { Tone } = io
     const band = new Tone.Filter({ frequency: 1500, type: 'bandpass', Q: 1.1 })
@@ -245,6 +346,6 @@
     list: [], // { id, label, blurb, local, file, create }
     add(def) { this.list.push(def) },
     get(id) { return this.list.find((d) => d.id === id) },
-    kit: { hz, fold, stereo, makeFx, makeTexture, makeDrone, makeSour, makeFarShore, loadScript },
+    kit: { hz, fold, stereo, makeFx, makeTexture, makeDrone, makeSour, makeFarShore, makeDeepField, loadScript },
   }
 })()
