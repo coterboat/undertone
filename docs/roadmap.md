@@ -1,6 +1,6 @@
 # undertone roadmap
 
-Updated 2026-10-04, at 0.8.0. What's built, what's next and in what order, and what waits on purpose. The day-to-day threads live in coter-kit's brain; this is the plan they hang off. Change it when the order changes.
+Updated 2026-10-04, at 0.9.0. What's built, what's next and in what order, and what waits on purpose. The day-to-day threads live in coter-kit's brain; this is the plan they hang off. Change it when the order changes.
 
 ## Where it is
 
@@ -18,7 +18,8 @@ Updated 2026-10-04, at 0.8.0. What's built, what's next and in what order, and w
 | 0.6.3 (`2124e76`) | The pops: buses pinned to stereo (a mono kick plus stereo noise flipped the drum bus's channel count on every hit, and each flip popped through the filters after it). Synth: softer snare, rounder kick and mallet, the kick ducks the bass, laid-back hats. The ears record on the audio thread |
 | 0.7.0 (`14a785d`) | GitHub Actions as an outside source (builds heard starting and finishing, a red workflow holds `ci:<workflow>`); tests that fail instead of hanging; the event log keeps its order through a stop |
 | 0.7.1 (`8caa574`) | Questions waiting on you are asked, not hummed: a soft rising bell figure every so often instead of the drone (which never stopped and sounded like a lawnmower) |
-| 0.8.0 | Styles: a mood can carry its own band and groove. Blue hour, a jazz-hop trio (walking bass, ride and cross-stick, rootless piano comping, swung eighths), for undertone, coter-kit and home by default |
+| 0.8.0 (`c59ad5a`) | Styles: a mood can carry its own band and groove. Blue hour, a jazz-hop trio (walking bass, ride and cross-stick, rootless piano comping, swung eighths), for undertone, coter-kit and home by default |
+| 0.9.0 | Afterhours, house as the second style (four on the floor, off-beat bass, stabs, the pad pumping with the kick), for home by default; a brighter walking bass on Synth and a lighter pad under jazz (Gemini's read) |
 
 ## Now
 
@@ -27,7 +28,7 @@ Updated 2026-10-04, at 0.8.0. What's built, what's next and in what order, and w
 
 ## Next, in order
 
-1. **The DJ (styles), in order:** house as the second style; then transitions (a track holds 16 bars, changes on phrase boundaries, keys one step apart, tempos in ratios like 82/123/164); then takeovers earned by pushes and green deploys; then the crate (chamber, ambient, synthwave, an Iron Veil boss fight).
+1. **The DJ (styles), in order:** transitions (a track holds 16 bars, changes on phrase boundaries, keys one step apart, tempos in ratios like 82/123/164); then takeovers earned by pushes and green deploys; then the crate (chamber, ambient, synthwave, an Iron Veil boss fight).
 2. **Home dashboard** on `GET /state` and `GET /timesheet`: every session at a glance, what needs you first, what's failing. The data is there since 0.3.
 3. **Synth tuning loop.** First round in 0.6.3 (the pops, the snare's snap, the bass under the kick), measured with a before/after rig: two scratch bridges replaying the same real events into two muted pages. Still open from earlier reads: mud at 180-300 Hz, hiss sitting alone on top.
 4. **More outside sources**, each a lane that colors the music without leading it: wallstbets bots (fills as pulses, a stalled bot as a failing check), a Grok review landing. (GitHub Actions came in 0.7.0.)

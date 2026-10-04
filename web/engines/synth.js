@@ -8,7 +8,8 @@ window.UndertoneEngines.add({
   local: false,
   create() {
     const { hz, stereo, makeFx, makeTexture, makeDrone, makeSour } = window.UndertoneEngines.kit
-    let T, fx, pad, padFilter, padChorus, bass, bassDuck, bell, drumBus, kick, snare, hat, tom, ride, comp, texture, drone, sour
+    let T, fx, pad, padFilter, padChorus, padDuck, bass, bassDuck, bell, drumBus, kick, snare, hat, openhat, tom, ride, comp, texture, drone, sour
+    let pumpDepth = 0
     const voices = {}
     const nodes = []
     const keep = (...n) => (nodes.push(...n), n[0])
@@ -74,8 +75,10 @@ window.UndertoneEngines.add({
         }))
         pad.maxPolyphony = 14
         pad.volume.value = -20
-        pad.chain(padFilter, padChorus)
-        send(padChorus, { dry: 1, rv: 0.55 })
+        // House side-chains the pad to the kick (style below sets how deep)
+        padDuck = keep(new Tone.Gain(1))
+        pad.chain(padFilter, padChorus, padDuck)
+        send(padDuck, { dry: 1, rv: 0.55 })
 
         bass = keep(new Tone.MonoSynth({
           oscillator: { type: 'triangle' },
@@ -119,6 +122,10 @@ window.UndertoneEngines.add({
         hat = keep(new Tone.NoiseSynth({ noise: { type: 'white' }, envelope: { attack: 0.001, decay: 0.035, sustain: 0 } }))
         hat.volume.value = -18
         hat.chain(hatHp, drumBus)
+        // House: an open hat on the off-beats
+        openhat = keep(new Tone.NoiseSynth({ noise: { type: 'white' }, envelope: { attack: 0.002, decay: 0.22, sustain: 0 } }))
+        openhat.volume.value = -22
+        openhat.connect(hatHp)
         tom = keep(new Tone.MembraneSynth({ pitchDecay: 0.09, octaves: 2.5, envelope: { attack: 0.002, decay: 0.9, sustain: 0, release: 0.3 } }))
         tom.volume.value = -8
         tom.connect(drumBus)
@@ -155,7 +162,14 @@ window.UndertoneEngines.add({
       bass(m, time, dur, vel) { bass.triggerAttackRelease(hz(m), dur, time, vel) },
       voice(timbre, m, time, dur, vel) { voices[timbre].triggerAttackRelease(hz(m), dur, time, vel) },
       comp(notes, time, dur, vel) { comp.triggerAttackRelease(notes.map(hz), dur, time, vel) },
-      drumKinds: ['kick', 'snare', 'hat', 'tom', 'rim', 'ride'],
+      drumKinds: ['kick', 'snare', 'hat', 'tom', 'rim', 'ride', 'openhat'],
+      // What the conductor's style needs from the sound: a walking bass that speaks its notes (a
+      // brighter filter), house's pump
+      style(name) {
+        bass.filterEnvelope.baseFrequency = name === 'jazz' ? 210 : name === 'house' ? 140 : 110
+        bass.filterEnvelope.octaves = name === 'jazz' ? 2.7 : 2.2
+        pumpDepth = name === 'house' ? 0.55 : 0
+      },
       drum(kind, time, vel, m) {
         // The kick holds the grid; hats and snare sit a few ms behind it and never hit the same
         // twice, so the groove breathes instead of ticking
@@ -168,8 +182,13 @@ window.UndertoneEngines.add({
           const g = bassDuck.gain
           g.setTargetAtTime(0.45, time, 0.004)
           g.setTargetAtTime(1, time + 0.03, 0.06)
+          if (pumpDepth) {
+            padDuck.gain.setTargetAtTime(1 - pumpDepth, time, 0.006)
+            padDuck.gain.setTargetAtTime(1, time + 0.06, 0.09)
+          }
         } else if (kind === 'tom') tom.triggerAttackRelease(hz(m || 38), '4n', time, vel)
         else if (kind === 'ride') ride.triggerAttackRelease(320, '8n', late(0, 4), drift(vel, 0.15))
+        else if (kind === 'openhat') openhat.triggerAttackRelease('8n', late(0, 5), drift(vel, 0.2))
         else if (kind === 'hat') hat.triggerAttackRelease('32n', late(0, 7), drift(vel, 0.25))
         else snare.triggerAttackRelease('32n', late(3, 10), drift(kind === 'rim' ? vel * 0.5 : vel, 0.12))
       },

@@ -10,7 +10,8 @@ window.UndertoneEngines.add({
   create() {
     const { makeFx, makeTexture, makeDrone, makeSour } = window.UndertoneEngines.kit
     const SMPLR = 'https://cdn.jsdelivr.net/npm/smplr@1.1.0/dist/index.mjs'
-    let fx, texture, drone, sour, padFilter, inst = {}, drumNames = []
+    let fx, texture, drone, sour, padFilter, padGain, inst = {}, drumNames = []
+    let pumpDepth = 0 // house side-chains the pad to the kick
     const nodes = []
     const keep = (...n) => (nodes.push(...n), n[0])
     const v127 = (v) => Math.max(1, Math.min(127, Math.round(v * 127)))
@@ -30,7 +31,7 @@ window.UndertoneEngines.add({
         const sm = await import(SMPLR)
         fx = await makeFx(io, { decay: 5.5 })
         padFilter = keep(new Tone.Filter({ frequency: 1400, type: 'lowpass', rolloff: -12 }))
-        const padGain = keep(new Tone.Gain(0.8))
+        padGain = keep(new Tone.Gain(0.8))
         padFilter.connect(padGain)
         fx.send(padGain, { dry: 1, rv: 0.6 })
 
@@ -77,16 +78,23 @@ window.UndertoneEngines.add({
           : kind === 'hat' ? pickDrum('hhclosed-short', 'hhclosed')
           : kind === 'ride' ? pickDrum('ride', 'crash', 'hhopen')
           : kind === 'stick' ? pickDrum('stick-m', 'stick-h', 'stick-l', 'snare-l')
+          : kind === 'clap' ? pickDrum('clap', 'snare-h')
+          : kind === 'openhat' ? pickDrum('hhopen', 'hhclosed')
           : kind === 'tom' ? pickDrum(m && m < 40 ? 'tom-l' : 'tom-m', 'conga-l', 'kick-alt')
           : pickDrum('snare-l', 'cabasa')
         inst.drums.start({ note: name, velocity: v127(vel * (kind === 'hat' ? 0.7 : kind === 'ride' ? 0.6 : 1)), time })
+        if (kind === 'kick' && pumpDepth) {
+          padGain.gain.setTargetAtTime(0.8 * (1 - pumpDepth), time, 0.006)
+          padGain.gain.setTargetAtTime(0.8, time + 0.06, 0.09)
+        }
       },
       bell(m, time, dur, vel) { inst.bell.start({ note: m, velocity: v127(vel), time, duration: dur * 2 }) },
       comp(notes, time, dur, vel) {
         const piano = inst.comp || inst.keys
         for (const m of notes) piano.start({ note: m, velocity: v127(vel * (inst.comp ? 1 : 0.8)), time, duration: dur })
       },
-      drumKinds: ['kick', 'snare', 'hat', 'tom', 'rim', 'ride', 'stick'],
+      drumKinds: ['kick', 'snare', 'hat', 'tom', 'rim', 'ride', 'stick', 'clap', 'openhat'],
+      style(name) { pumpDepth = name === 'house' ? 0.5 : 0 },
       sour(state, m, time, to) { sour[state](m, time, to) },
       drone(level, tonic, time) { drone.set(level, tonic, time) },
       texture(a) { texture.set(a) },
