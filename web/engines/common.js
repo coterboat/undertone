@@ -12,6 +12,9 @@
 //   drum(kind, time, vel, midi)            kind: kick | snare | hat | tom | rim, and ride | stick where
 //                                          drumKinds lists them (the conductor falls back to hat | rim)
 //   comp(notes, time, dur, vel)            optional: a short piano chord, for jazz (else a short pad)
+//   style(name)                            optional: the conductor's style changed (lofi | jazz | house | farshore | deepfield)
+//   layer(name, notes, time, dur, vel)     optional: a style's own part (pulse, accent, tick, ...); false = not mine
+//   tier(n)                                optional: 0 calm, 1 working, 2 full
 //   bell(midi, time, dur, vel)
 //   sour(state, midi, time, to)            state: on | move | off (to = the note it resolves into)
 //   drone(level, tonic, time)              level 0..1 (the conductor no longer uses it: waiting questions are asked with bells)
@@ -110,6 +113,100 @@
   }
 
   // The sour note: a held, trembling saw that can glide (samples can't, so every engine uses this)
+  // Far shore (after Mass Effect 1; docs/space-styles.md), shared by the engines that play in the
+  // page so the style sounds the same on each. One dark hall on an aux (40 ms predelay, about 5 s,
+  // the return low-passed near 4 kHz), wetter when calm and drier when busy; everything else keeps a dry
+  // onset. Each part has its own band: the pulse under 180 Hz, the pad 150-800 Hz, the rest above.
+  async function makeFarShore(io) {
+    const { Tone, out } = io
+    const nodes = []
+    const keep = (n) => (nodes.push(n), n)
+    const hall = keep(new Tone.Reverb({ decay: 5, preDelay: 0.04, wet: 1 }))
+    await hall.generate()
+    // About 4 dB up: measured 5 dB under the other styles, so a switch would duck the volume
+    const level = keep(stereo(new Tone.Gain(1.6)))
+    level.connect(out)
+    const hallIn = keep(stereo(new Tone.Gain(0.3)))
+    hallIn.chain(hall, keep(new Tone.Filter(4000, 'lowpass')), level)
+    const dry = keep(stereo(new Tone.Gain(1)))
+    dry.connect(level)
+    const route = (node, send) => {
+      node.connect(dry)
+      if (send) { const g = keep(new Tone.Gain(send)); node.connect(g); g.connect(hallIn) } // (connect returns the source, not the target)
+    }
+
+    // The pad: two saws 7 cents either side, 150-800 Hz, slow in and out; it gives way to each pulse
+    const pad = keep(new Tone.PolySynth(Tone.Synth, { oscillator: { type: 'fatsawtooth', count: 2, spread: 14 }, envelope: { attack: 2, decay: 1, sustain: 0.85, release: 3 } }))
+    pad.maxPolyphony = 12
+    pad.volume.value = -18
+    const padDuck = keep(new Tone.Gain(1))
+    pad.chain(keep(new Tone.Filter(150, 'highpass')), keep(new Tone.Filter(800, 'lowpass')), padDuck)
+    route(padDuck, 1)
+
+    // The pulse: a sine with a triangle an octave up, 8 ms in, 160 ms out, low-passed near 180 Hz, dry
+    const pulseLp = keep(new Tone.Filter(180, 'lowpass'))
+    const pulseSine = keep(new Tone.Synth({ oscillator: { type: 'sine' }, envelope: { attack: 0.008, decay: 0.16, sustain: 0, release: 0.05 } }))
+    const pulseTri = keep(new Tone.Synth({ oscillator: { type: 'triangle' }, envelope: { attack: 0.008, decay: 0.16, sustain: 0, release: 0.05 } }))
+    // Measured: at the synths' default level the pulse was 81% of the mix's energy
+    pulseSine.volume.value = -14
+    pulseTri.volume.value = -20
+    pulseSine.connect(pulseLp)
+    pulseTri.connect(pulseLp)
+    route(pulseLp, 0)
+
+    // Sessions: pulse waves, each voice its own width and place in the stereo field, a dry onset
+    const WIDTH = { keys: 0.5, pluck: 0.3, mallet: 0.15, cello: 0.65 }
+    const PAN = { keys: -0.18, pluck: 0.18, mallet: -0.08, cello: 0.08 }
+    const voices = {}
+    for (const t of Object.keys(WIDTH)) {
+      const v = keep(new Tone.PolySynth(Tone.Synth, { oscillator: { type: 'pulse', width: WIDTH[t] }, envelope: { attack: 0.006, decay: t === 'cello' ? 0.5 : 0.25, sustain: 0, release: 0.2 } }))
+      v.maxPolyphony = 8
+      v.volume.value = -17
+      const pan = keep(new Tone.Panner(PAN[t]))
+      v.chain(keep(new Tone.Filter(2400, 'lowpass')), pan)
+      route(pan, 0.15)
+      voices[t] = v
+    }
+
+    // Working: a quiet square, the add9; full: a short band-passed noise tick
+    const accent = keep(new Tone.Synth({ oscillator: { type: 'pulse', width: 0.4 }, envelope: { attack: 0.01, decay: 0.3, sustain: 0, release: 0.3 } }))
+    accent.volume.value = -22
+    const accentLp = keep(new Tone.Filter(1800, 'lowpass'))
+    accent.connect(accentLp)
+    route(accentLp, 0.3)
+    const tickBand = keep(new Tone.Filter({ frequency: 2000, type: 'bandpass', Q: 1.2 }))
+    const tick = keep(new Tone.NoiseSynth({ noise: { type: 'white' }, envelope: { attack: 0.001, decay: 0.035, sustain: 0 } }))
+    tick.volume.value = -26
+    tick.connect(tickBand)
+    route(tickBand, 0.1)
+
+    // Asks and commits: short sine blips, an octave above the pad
+    const blip = keep(new Tone.PolySynth(Tone.Synth, { oscillator: { type: 'sine' }, envelope: { attack: 0.004, decay: 0.5, sustain: 0, release: 0.4 } }))
+    blip.maxPolyphony = 8
+    blip.volume.value = -12
+    route(blip, 0.2)
+
+    return {
+      pad(notes, time, dur, vel) { pad.triggerAttackRelease(notes.map(hz), dur, time, vel) },
+      voice(timbre, m, time, dur, vel) { (voices[timbre] || voices.keys).triggerAttackRelease(hz(m), Math.min(dur, 0.6), time, vel) },
+      bell(m, time, dur, vel) { blip.triggerAttackRelease(hz(m), Math.min(dur, 1), time, vel) },
+      layer(name, notes, time, dur, vel) {
+        if (name === 'pulse') {
+          pulseSine.triggerAttackRelease(hz(notes[0]), dur, time, vel)
+          pulseTri.triggerAttackRelease(hz(notes[0] + 12), dur, time, vel)
+          padDuck.gain.setTargetAtTime(0.79, time, 0.005) // about 2 dB
+          padDuck.gain.setTargetAtTime(1, time + 0.05, 0.08)
+          return true
+        }
+        if (name === 'accent') { accent.triggerAttackRelease(hz(notes[0]), dur, time, vel); return true }
+        if (name === 'tick') { tick.triggerAttackRelease(dur, time, vel); return true }
+        return false
+      },
+      tier(t) { hallIn.gain.rampTo([0.3, 0.18, 0.12][t] ?? 0.3, 2) },
+      dispose() { for (const n of nodes) { try { n.dispose() } catch {} } },
+    }
+  }
+
   function makeSour(io, send, { volume = -21 } = {}) {
     const { Tone } = io
     const band = new Tone.Filter({ frequency: 1500, type: 'bandpass', Q: 1.1 })
@@ -148,6 +245,6 @@
     list: [], // { id, label, blurb, local, file, create }
     add(def) { this.list.push(def) },
     get(id) { return this.list.find((d) => d.id === id) },
-    kit: { hz, fold, stereo, makeFx, makeTexture, makeDrone, makeSour, loadScript },
+    kit: { hz, fold, stereo, makeFx, makeTexture, makeDrone, makeSour, makeFarShore, loadScript },
   }
 })()

@@ -8,10 +8,13 @@ window.UndertoneEngines.add({
   blurb: 'Real instruments via smplr: Wurlitzer, vibes, nylon guitar, Mellotron strings, upright bass, LinnDrum.',
   local: true,
   create() {
-    const { makeFx, makeTexture, makeDrone, makeSour } = window.UndertoneEngines.kit
+    const { makeFx, makeTexture, makeDrone, makeSour, makeFarShore } = window.UndertoneEngines.kit
     const SMPLR = 'https://cdn.jsdelivr.net/npm/smplr@1.1.0/dist/index.mjs'
     let fx, texture, drone, sour, padFilter, padGain, inst = {}, drumNames = []
     let pumpDepth = 0 // house side-chains the pad to the kick
+    // The space styles bring their own sounds (common.js), loaded the first time they play
+    let IO = null, current = 'lofi', fs = null, fsLoading = null
+    const space = () => (current === 'farshore' ? fs : null)
     const nodes = []
     const keep = (...n) => (nodes.push(...n), n[0])
     const v127 = (v) => Math.max(1, Math.min(127, Math.round(v * 127)))
@@ -26,6 +29,7 @@ window.UndertoneEngines.add({
 
     return {
       async init(io) {
+        IO = io
         const { Tone, ctx } = io
         io.status('Loading samples')
         const sm = await import(SMPLR)
@@ -59,16 +63,19 @@ window.UndertoneEngines.add({
         io.status('')
       },
       dispose() {
+        if (fs) fs.dispose()
         for (const i of Object.values(inst)) { try { i.stop(); i.disconnect && i.disconnect() } catch {} }
         for (const n of nodes) { try { n.dispose() } catch {} }
         for (const x of [fx, texture, drone, sour]) if (x) x.dispose()
         inst = {}
       },
       pad(notes, time, dur, vel) {
+        if (space()) return space().pad(notes, time, dur, vel)
         for (const m of notes) inst.pad.start({ note: m, velocity: v127(vel * 0.75), time, duration: dur })
       },
       bass(m, time, dur, vel) { inst.bass.start({ note: m, velocity: v127(vel), time, duration: dur }) },
       voice(timbre, m, time, dur, vel) {
+        if (space()) return space().voice(timbre, m, time, dur, vel)
         const i = inst[timbre]
         if (i) i.start({ note: m, velocity: v127(vel), time, duration: timbre === 'cello' ? dur * 2 : dur * 3 })
       },
@@ -88,13 +95,19 @@ window.UndertoneEngines.add({
           padGain.gain.setTargetAtTime(0.8, time + 0.06, 0.09)
         }
       },
-      bell(m, time, dur, vel) { inst.bell.start({ note: m, velocity: v127(vel), time, duration: dur * 2 }) },
+      bell(m, time, dur, vel) { if (space()) return space().bell(m, time, dur, vel); inst.bell.start({ note: m, velocity: v127(vel), time, duration: dur * 2 }) },
       comp(notes, time, dur, vel) {
         const piano = inst.comp || inst.keys
         for (const m of notes) piano.start({ note: m, velocity: v127(vel * (inst.comp ? 1 : 0.8)), time, duration: dur })
       },
       drumKinds: ['kick', 'snare', 'hat', 'tom', 'rim', 'ride', 'stick', 'clap', 'openhat'],
-      style(name) { pumpDepth = name === 'house' ? 0.5 : 0 },
+      style(name) {
+        current = name
+        pumpDepth = name === 'house' ? 0.5 : 0
+        if (name === 'farshore' && !fs && !fsLoading && IO) fsLoading = makeFarShore(IO).then((k) => { fs = k }).catch(() => { fsLoading = null })
+      },
+      layer(name, notes, time, dur, vel) { return space() ? space().layer(name, notes, time, dur, vel) : false },
+      tier(t) { if (fs) fs.tier(t) },
       sour(state, m, time, to) { sour[state](m, time, to) },
       drone(level, tonic, time) { drone.set(level, tonic, time) },
       texture(a) { texture.set(a) },

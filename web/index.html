@@ -417,7 +417,7 @@ const QUALITY = {
   maj9: [0, 4, 7, 11, 14], maj7: [0, 4, 7, 11], m9: [0, 3, 7, 10, 14], m7: [0, 3, 7, 10],
   m11: [0, 3, 7, 10, 14, 17], '9sus4': [0, 5, 7, 10, 14], '6/9': [0, 4, 7, 9, 14], '9': [0, 4, 7, 10, 14],
   'm(add9)': [0, 3, 7, 14],
-  '13': [0, 4, 10, 14, 21], '7b9': [0, 4, 10, 13], // dominants, for jazz
+  sus2: [0, 2, 7], add9: [0, 4, 7, 14], // open voicings for the space styles
 };
 
 // Each mood loops a progression that never quite resolves; a commit sends it home.
@@ -430,9 +430,15 @@ const MOODS = {
   // House: four on the floor, a pumping off-beat bass, chord stabs, the pad side-chained to the kick.
   // G minor is B-flat's relative minor (next door to Blue hour); 123 bpm is 3:2 against Late shift.
   house:  { name: 'Afterhours', label: 'G minor',  tonic: 43, sharp: false, bpm: 123, swing: 0.04, scale: [0, 3, 5, 7, 10], prog: [[0, 'm9'], [8, 'maj9'], [3, 'maj7'], [10, '9sus4']], home: [0, 'm11'], drums: 'house', style: 'house', padHz: 1300 },
-  // A style, not just a key: a jazz-hop trio. ii-V-I-VI, a walking bass, ride and cross-stick, piano
-  // comping, swung eighths. B-flat sits a fifth from Late shift, one step around the circle.
-  jazz:   { name: 'Blue hour',  label: 'B♭ major', tonic: 46, sharp: false, bpm: 84, swing: 0.5, swingSub: '8n', scale: [0, 2, 4, 5, 7, 9, 11], prog: [[2, 'm9'], [7, '13'], [0, 'maj9'], [9, '7b9']], home: [0, '6/9'], drums: 'jazz', style: 'jazz', padHz: 1000 },
+  // Far shore (after Mass Effect 1; docs/space-styles.md): E Aeolian on sus2 voicings over a pulse that
+  // plays only while a turn runs, a dark hall, every session a pulse wave in its own register. No drums
+  // but a tick in the full tier. Almost nothing moves.
+  farshore: { name: 'Far shore', label: 'E minor', tonic: 40, sharp: true, bpm: 100, swing: 0, scale: [0, 2, 3, 7, 10], prog: [[0, 'sus2'], [10, 'sus2'], [8, 'add9'], [7, 'm7']], home: [0, 'm(add9)'], drums: 'none', style: 'farshore', padHz: 800, chordLanes: true },
+  // A style, not just a key: a jazz-hop trio, walking bass, ride and cross-stick, piano comping.
+  // Kept consonant on purpose (10-4: the first cut, with a 7b9, a 13, chromatic bass approaches, full
+  // triplet swing and the whole scale for the lanes, put Alex on edge): every chord stays in the key,
+  // the swing is light, the lanes keep to the pentatonic. B-flat sits a fifth from Late shift.
+  jazz:   { name: 'Blue hour',  label: 'B♭ major', tonic: 46, sharp: false, bpm: 80, swing: 0.3, swingSub: '8n', scale: [0, 2, 4, 7, 9], prog: [[2, 'm9'], [7, '9sus4'], [0, 'maj9'], [9, 'm9']], home: [0, '6/9'], drums: 'jazz', style: 'jazz', padHz: 1000 },
 };
 const moodFor = (project) => {
   const p = String(project || '').toLowerCase();
@@ -441,7 +447,7 @@ const moodFor = (project) => {
   if (/xcom|iron|veil|godot/.test(p)) return 'dusk';
   if (/wallst|bets|trad|alpaca/.test(p)) return 'ticker';
   if (/home/.test(p)) return 'house';
-  if (/undertone|coter/.test(p)) return 'jazz';
+  if (/undertone/.test(p)) return 'farshore';
   return 'lofi';
 };
 const noteName = (m, sharp) => (sharp ? SHARPS : FLATS)[((m % 12) + 12) % 12];
@@ -459,7 +465,8 @@ const REG = { keys: [57, 79], pluck: [64, 88], mallet: [67, 91], cello: [41, 62]
 
 function poolFor(mood, chord, timbre) {
   const [lo, hi] = REG[timbre];
-  const scale = new Set(mood.scale.map((i) => (mood.tonic + i) % 12));
+  // The space styles keep the lanes on the chord's own tones: a figure, not a scale run
+  const scale = new Set(mood.chordLanes ? [] : mood.scale.map((i) => (mood.tonic + i) % 12));
   const out = [];
   for (let n = lo; n <= hi; n++) if (scale.has(n % 12) || chord.pcs.has(n % 12)) out.push(n);
   return out;
@@ -484,6 +491,7 @@ const S = {
   landHome: false,
   step: 0,
   nextAskBar: 2, // the first ask comes a couple of bars in
+  tier: 0, tierAt: 0, tierLow: 0, layers: {}, surgeUntil: 0, // calm, working, full
   drumsOn: saved.drums !== false,
   callsOn: saved.calls !== false,
   drumLevel: 0,
@@ -592,6 +600,7 @@ async function startEngine(id) {
   const now = Tone.now() + 0.05;
   E('texture', S.texture);
   E('style', mood().style || 'lofi');
+  E('tier', S.tier);
   E('energy', energy(), now, mood().padHz);
   if (S.sourOn) E('sour', 'on', S.sourMidi, now);
   // A pad right away, so a switch is heard at once instead of at the next chord
@@ -654,6 +663,7 @@ function tick(time) {
     S.drumLevel = clamp(S.drumLevel + (want - S.drumLevel) * 0.35, 0, 1);
     E('energy', En, time, mood().padHz);
     askTick(bar, time);
+    updateTier(bar, En);
   }
 
   if (mood().style === 'jazz') {
@@ -662,6 +672,8 @@ function tick(time) {
   } else if (mood().style === 'house') {
     houseBass(sib, time, En);
     houseStabs(sib, time, En);
+  } else if (mood().style === 'farshore') {
+    farShore(sib, bar, time);
   } else {
     const b = S.chord.bass;
     if (sib === 0) E('bass', b, time, Tone.Time('2n').toSeconds(), 0.8);
@@ -699,13 +711,17 @@ function walkLine(bar) {
   let target = next.root % 12 + 36;
   while (target - line[2] > 6) target -= 12;
   while (line[2] - target > 6) target += 12;
-  line.push(target + (line[2] < target ? -1 : 1));
+  // A scale step below or above, never a half step: the chromatic lean sounded tense
+  const inKey = (n) => m.scale.includes((((n - m.tonic) % 12) + 12) % 12) || c.pcs.has(((n % 12) + 12) % 12);
+  let lean = target + (line[2] < target ? -2 : 2);
+  if (!inKey(lean)) lean = target + (line[2] < target ? -3 : 3);
+  line.push(inKey(lean) ? lean : line[2]);
   return line;
 }
 function walkingBass(sib, bar, time, En) {
   if (sib % 4 !== 0) return;
   const beat = sib / 4;
-  const walking = En > 0.35 || [...lanes.values()].some((l) => l.busy && !l.off);
+  const walking = En > 0.5 && [...lanes.values()].some((l) => l.busy && !l.off);
   if (beat === 0) S.walk = walkLine(bar);
   if (!S.walk || (!walking && beat % 2 === 1)) return;
   const note = clamp(S.walk[beat], BASS_LO, BASS_HI);
@@ -716,16 +732,62 @@ function walkingBass(sib, bar, time, En) {
 
 // Rootless voicings (no root: the bass has it) on a different pattern each bar: the Charleston
 // (1, the and of 2) and its cousins. A busy room comps a little more.
-const COMPS = [[0, 6], [6, 14], [4, 10], [0, 10], [2, 8], [0, 6, 12]];
+const COMPS = [[0, 6], [0, 10], [0, 6], [0]];
 function jazzComp(sib, time, En) {
-  if (sib === 0) S.compPattern = Math.random() < 0.15 + En * 0.25 ? pick(COMPS).concat([pick([10, 14])]) : pick(COMPS);
+  if (sib === 0) S.compPattern = pick(COMPS);
   if (!S.compPattern || !S.compPattern.includes(sib)) return;
   const c = S.chord;
   const voicing = [...new Set(QUALITY[c.q].filter((i) => i % 12 !== 0).map((i) => fold(c.root + i, 55, 71)))].sort((a, b) => a - b).slice(0, 4);
   const dur = Tone.Time('8n').toSeconds() * (sib === 0 ? 1.8 : 1.1);
-  const vel = (sib === 0 ? 0.42 : 0.34) + En * 0.1;
+  const vel = (sib === 0 ? 0.34 : 0.26) + En * 0.06;
   if (S.engine && typeof S.engine.comp === 'function') E('comp', voicing, time, dur, vel);
   else E('pad', voicing, time, dur, vel * 0.8, false);
+}
+
+// ------------------------------------------------------------------ tiers: calm, working, full
+
+// The space styles arrange in three steps instead of a slow fade, so the moment the room gets busy is
+// heard: up fast (a step every two bars), down slow (after eight quiet bars), and each layer fades in
+// or out over two bars. Calls, sour notes and asks never wait for a tier: they play at once.
+const TIER_LAYERS = {
+  farshore: (t, busy) => ({ pulse: t >= 1 && busy, accent: t >= 1, tick: t >= 2 }),
+};
+function updateTier(bar, En) {
+  const busy = [...lanes.values()].some((l) => l.busy && !l.off);
+  let target = busy && En > 0.7 ? 2 : busy || En > 0.3 ? 1 : 0;
+  if (S.surgeUntil > bar) target = 2;
+  if (target > S.tier && bar - S.tierAt >= 2) { S.tier += 1; S.tierAt = bar; S.tierLow = 0; E('tier', S.tier); }
+  else if (target < S.tier) { if (++S.tierLow >= 8) { S.tier -= 1; S.tierAt = bar; S.tierLow = 0; E('tier', S.tier); } }
+  else S.tierLow = 0;
+  const want = (TIER_LAYERS[mood().style] || (() => ({})))(S.tier, busy);
+  for (const k of new Set([...Object.keys(want), ...Object.keys(S.layers)])) S.layers[k] = clamp((S.layers[k] || 0) + (want[k] ? 0.5 : -0.5), 0, 1);
+}
+
+// A style's own layers go to the engine's layer() when it has one, else to the nearest plain sound
+const LAYER_FALLBACK = {
+  pulse: (n, t, d, v) => E('bass', n[0], t, d, v),
+  accent: (n, t, d, v) => E('voice', 'pluck', n[0], t, d, v),
+  tick: (n, t, d, v) => E('drum', 'hat', t, v),
+};
+function layer(name, notes, time, dur, vel) {
+  if (vel <= 0.001) return;
+  if (S.engine && typeof S.engine.layer === 'function' && S.engine.layer(name, notes, time, dur, vel) !== false) return;
+  const f = LAYER_FALLBACK[name];
+  if (f) f(notes, time, dur, vel);
+}
+
+// ------------------------------------------------------------------ Far shore
+
+// The pulse: eighths on the key's root (A1 to E2: lower, laptop speakers can't play it), beat 1 a
+// little louder, resting one bar in four,
+// only while a turn runs. Working adds a quiet add9 on the last eighth of every other bar; full adds a
+// short noise tick on 2 and 4.
+function farShore(sib, bar, time) {
+  const m = mood();
+  const L = S.layers;
+  if (sib % 2 === 0 && L.pulse > 0 && bar % 4 !== 3) layer('pulse', [fold(m.tonic, 33, 40)], time, 0.2, (sib === 0 ? 0.62 : 0.5) * L.pulse);
+  if (bar % 2 === 1 && sib === 14 && L.accent > 0) layer('accent', [fold(S.chord.root + 14, 64, 76)], time, 0.18, 0.3 * L.accent);
+  if ((sib === 4 || sib === 12) && L.tick > 0) layer('tick', [], time, 0.035, 0.4 * L.tick);
 }
 
 // ------------------------------------------------------------------ house: the pump and the stabs
@@ -758,6 +820,7 @@ const drumKind = (k) => (FALLBACK[k] && !(S.engine && S.engine.drumKinds && S.en
 
 function drums(sib, time, En, lvl) {
   const style = mood().drums;
+  if (style === 'none') return; // the space styles keep time with their own layers
   const hit = (kind, v, m) => E('drum', drumKind(kind), time, v * lvl, m);
   if (style === 'house') {
     if (sib % 4 === 0) hit('kick', sib === 0 ? 0.95 : 0.88);
@@ -768,15 +831,12 @@ function drums(sib, time, En, lvl) {
   }
   if (style === 'jazz') {
     // Ride: spang-a-lang (every beat, and the swung eighth before 2 and 4)
-    if (sib % 4 === 0) hit('ride', sib === 0 ? 0.42 : 0.34);
-    if (sib === 6 || sib === 14) hit('ride', 0.24);
+    if (sib % 4 === 0) hit('ride', sib === 0 ? 0.3 : 0.24);
+    if (sib === 6 || sib === 14) hit('ride', 0.16);
     // Hi-hat foot and a cross-stick on 2 and 4; a jazz-hop kick on 1 and the and of 3
     if (sib === 4 || sib === 12) { hit('hat', 0.2); hit('stick', 0.5); }
     if (sib === 0) hit('kick', 0.72);
-    if (sib === 10 && Math.random() < 0.6) hit('kick', 0.48);
-    if (sib === 7 && En > 0.5 && Math.random() < 0.25) hit('kick', 0.32);
-    // Brushes: ghost notes on the off eighths
-    if (sib % 4 === 2 && Math.random() < 0.2 + En * 0.2) hit('snare', 0.09);
+    if (sib === 10 && Math.random() < 0.4) hit('kick', 0.42);
     return;
   }
   if (style === 'war') {
@@ -836,7 +896,9 @@ function playLane(ln, midi, time, vel, dur) {
 
 function laneTick(ln, sib, time) {
   if (ln.ended) return;
-  const grid = ln.queue.length > 3 ? 1 : 2;
+  // The space styles budget a lane to one new note an eighth (a sixteenth only for the lead in the full
+  // tier), so sessions firing together stay a figure instead of a wall
+  const grid = mood().chordLanes ? (S.tier === 2 && ln.project === S.leadNow ? 1 : 2) : ln.queue.length > 3 ? 1 : 2;
   if (sib % grid !== 0) return;
   let kind = null;
   if (ln.queue.length) kind = ln.queue.shift();

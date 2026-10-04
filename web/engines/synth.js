@@ -7,9 +7,12 @@ window.UndertoneEngines.add({
   blurb: 'Tone.js, all synthesized. Warm FM keys, saw pads, no samples.',
   local: false,
   create() {
-    const { hz, stereo, makeFx, makeTexture, makeDrone, makeSour } = window.UndertoneEngines.kit
+    const { hz, stereo, makeFx, makeTexture, makeDrone, makeSour, makeFarShore } = window.UndertoneEngines.kit
     let T, fx, pad, padFilter, padChorus, padDuck, bass, bassDuck, bell, drumBus, kick, snare, hat, openhat, tom, ride, comp, texture, drone, sour
     let pumpDepth = 0
+    // The space styles bring their own sounds (common.js), loaded the first time they play
+    let current = 'lofi', fs = null, fsLoading = null
+    const space = () => (current === 'farshore' ? fs : null)
     const voices = {}
     const nodes = []
     const keep = (...n) => (nodes.push(...n), n[0])
@@ -133,7 +136,7 @@ window.UndertoneEngines.add({
         // Jazz: a ride, kept airy above 3.5 kHz
         const rideHp = keep(new Tone.Filter(3500, 'highpass'))
         ride = keep(new Tone.MetalSynth({ envelope: { attack: 0.001, decay: 1.1, release: 0.4 }, harmonicity: 5.1, modulationIndex: 24, resonance: 5200, octaves: 1.2 }))
-        ride.volume.value = -27
+        ride.volume.value = -31
         ride.chain(rideHp, drumBus)
 
         // Jazz comping: a warm FM electric piano, apart from the lanes' keys
@@ -155,17 +158,22 @@ window.UndertoneEngines.add({
         sour = makeSour(io, send, { volume: -15 })
       },
       dispose() {
+        if (fs) fs.dispose()
         for (const n of nodes) { try { n.dispose() } catch {} }
         for (const x of [fx, texture, drone, sour]) if (x) x.dispose()
       },
-      pad(notes, time, dur, vel) { pad.triggerAttackRelease(notes.map(hz), dur, time, vel) },
+      pad(notes, time, dur, vel) { if (space()) return space().pad(notes, time, dur, vel); pad.triggerAttackRelease(notes.map(hz), dur, time, vel) },
       bass(m, time, dur, vel) { bass.triggerAttackRelease(hz(m), dur, time, vel) },
-      voice(timbre, m, time, dur, vel) { voices[timbre].triggerAttackRelease(hz(m), dur, time, vel) },
+      voice(timbre, m, time, dur, vel) { if (space()) return space().voice(timbre, m, time, dur, vel); voices[timbre].triggerAttackRelease(hz(m), dur, time, vel) },
+      layer(name, notes, time, dur, vel) { return space() ? space().layer(name, notes, time, dur, vel) : false },
+      tier(t) { if (fs) fs.tier(t) },
       comp(notes, time, dur, vel) { comp.triggerAttackRelease(notes.map(hz), dur, time, vel) },
       drumKinds: ['kick', 'snare', 'hat', 'tom', 'rim', 'ride', 'openhat'],
       // What the conductor's style needs from the sound: a walking bass that speaks its notes (a
       // brighter filter), house's pump
       style(name) {
+        current = name
+        if (name === 'farshore' && !fs && !fsLoading) fsLoading = makeFarShore(T).then((k) => { fs = k }).catch(() => { fsLoading = null })
         bass.filterEnvelope.baseFrequency = name === 'jazz' ? 210 : name === 'house' ? 140 : 110
         bass.filterEnvelope.octaves = name === 'jazz' ? 2.7 : 2.2
         pumpDepth = name === 'house' ? 0.55 : 0
@@ -192,7 +200,7 @@ window.UndertoneEngines.add({
         else if (kind === 'hat') hat.triggerAttackRelease('32n', late(0, 7), drift(vel, 0.25))
         else snare.triggerAttackRelease('32n', late(3, 10), drift(kind === 'rim' ? vel * 0.5 : vel, 0.12))
       },
-      bell(m, time, dur, vel) { bell.triggerAttackRelease(hz(m), dur, time, vel) },
+      bell(m, time, dur, vel) { if (space()) return space().bell(m, time, dur, vel); bell.triggerAttackRelease(hz(m), dur, time, vel) },
       sour(state, m, time, to) { sour[state](m, time, to) },
       drone(level, tonic, time) { drone.set(level, tonic, time) },
       texture(a) { texture.set(a) },
