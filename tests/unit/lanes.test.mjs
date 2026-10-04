@@ -104,8 +104,9 @@ test('check names read as words, and each kind of failure gets its own sour note
   assert.equal(checkLabel('test:vitest'), 'tests (vitest)')
   assert.equal(checkLabel('prod-errors:Http5xx'), 'prod errors (Http5xx)')
   assert.equal(checkLabel('typecheck'), 'typecheck')
+  assert.equal(checkLabel('ci:Deploy-to-GitHub-Pages'), 'CI (Deploy to GitHub Pages)')
   const root = 53 // F
-  const notes = ['test', 'typecheck', 'lint', 'build', 'prod-errors:Http5xx'].map((c) => sourFor(c, root))
+  const notes = ['test', 'typecheck', 'lint', 'build', 'prod-errors:Http5xx', 'ci:CI'].map((c) => sourFor(c, root))
   assert.equal(new Set(notes).size, notes.length, 'every kind sounds different')
   assert.equal((sourFor('test', root) - root) % 12, 6, 'tests keep the tritone')
   assert.ok(sourFor('prod-errors', root) < 54, 'production errors rumble low')

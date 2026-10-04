@@ -9,7 +9,8 @@
 //   node sources/azure-metrics.mjs --mock NAME   made-up traffic for NAME, to hear it before it's wired
 //
 // The bridge starts this itself when sources.json exists (bridge/sources.mjs), so you rarely run it
-// by hand. Only one copy runs at a time: it holds ~/.undertone/sources.pid while it does.
+// by hand. Only one copy runs at a time: it holds ~/.undertone/sources.pid while it does. It runs
+// every source in the file: an entry with "github" is GitHub Actions (sources/github-actions.mjs).
 //
 // ~/.config/undertone/sources.json, one entry per source:
 //   { "ourplace": { "label": "ourPlace prod", "metrics": [
@@ -29,6 +30,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { execFile } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
+import { makeGithubSource } from './github-actions.mjs'
 
 const BRIDGE = 'http://127.0.0.1:' + (process.env.UNDERTONE_PORT || 4747)
 const CONFIG = process.env.UNDERTONE_SOURCES_CONFIG || path.join(os.homedir(), '.config', 'undertone', 'sources.json')
@@ -119,7 +121,7 @@ export function makeSource(name, cfg, { az = runAz, send = postToBridge, clock =
 }
 
 async function runSource(name, cfg) {
-  const src = makeSource(name, cfg)
+  const src = cfg.github ? makeGithubSource(name, cfg, { send: postToBridge }) : makeSource(name, cfg)
   await postToBridge([{ type: 'session.start', ...src.lane }])
   setInterval(() => postToBridge([{ type: 'alive', ...src.lane }]), 60_000)
   const every = (cfg.everySec || 60) * 1000
