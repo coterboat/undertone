@@ -5,6 +5,7 @@ import { test, after } from 'node:test'
 import assert from 'node:assert/strict'
 import http from 'node:http'
 import net from 'node:net'
+import dgram from 'node:dgram'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -287,6 +288,62 @@ test('a bridge started on its own leaves after a quiet spell; a Claude session k
   assert.equal(await within(b.exited, 1500), 'still running', 'a Claude session keeps it')
   await b.post([{ type: 'session.end', ...lane('aaaa0001') }])
   assert.equal(await within(b.exited, 3000), 0, 'quiet once only the outside source is left')
+})
+
+// A stand-in for sclang on a free port: answers a ping as the real one does and keeps every message
+async function fakeSc() {
+  const got = []
+  const sock = dgram.createSocket('udp4')
+  sock.on('message', (msg, from) => {
+    let i = msg.indexOf(0)
+    const address = msg.toString('utf8', 0, i)
+    i += 4 - (i % 4)
+    const tagEnd = msg.indexOf(0, i)
+    const tags = msg.toString('ascii', i + 1, tagEnd)
+    i = tagEnd + (4 - (tagEnd % 4))
+    const args = []
+    for (const t of tags) {
+      if (t === 'f') { args.push(msg.readFloatBE(i)); i += 4 }
+      else if (t === 's') { const e = msg.indexOf(0, i); args.push(msg.toString('utf8', i, e)); i = e + (4 - (e % 4)) }
+    }
+    got.push({ address, args })
+    if (address === '/ut/ping') sock.send(Buffer.from('/ut/pong\0\0\0\0,\0\0\0'), from.port, from.address)
+  })
+  await new Promise((r) => sock.bind(0, '127.0.0.1', r))
+  return { port: sock.address().port, got, close: () => sock.close() }
+}
+
+// A page listening on /events, until it's closed
+const openPage = (port) => new Promise((resolve, reject) => {
+  const req = http.get({ host: '127.0.0.1', port, path: '/events' }, (res) => res.once('data', () => resolve({ close: () => req.destroy() })))
+  req.on('error', reject)
+})
+
+test('SuperCollider is silenced once no page is listening, so a closed tab leaves no sour note behind; a reload keeps it playing', async () => {
+  const sc = await fakeSc()
+  const b = await bridge({ env: { UNDERTONE_SC_PORT: String(sc.port), UNDERTONE_SC_ORPHAN_MS: '300' } })
+  const released = () => sc.got.filter((m) => m.address === '/ut/sour' && m.args[1] === 'off')
+  try {
+    let page = await openPage(b.port)
+    assert.equal((await fetch(b.url + '/sc/start', { method: 'POST' })).status, 200)
+    await fetch(b.url + '/sc', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify([{ k: 'sour', s: 'on', m: 66, d: 0.02 }]) })
+
+    // A reload: the old page goes and the new one is listening well inside the wait
+    page.close()
+    page = await openPage(b.port)
+    await sleep(900)
+    assert.deepEqual(released(), [], 'a reload releases nothing')
+
+    page.close()
+    for (let i = 0; i < 50 && !released().length; i++) await sleep(50)
+    assert.equal(released().length, 1, 'the held sour note is let go')
+    const last = (address) => sc.got.findLast((m) => m.address === address)
+    assert.equal(last('/ut/level')?.args[0], 0)
+    assert.equal(last('/ut/drone')?.args[0], 0)
+  } finally {
+    sc.close()
+    await b.stop()
+  }
 })
 
 test('a bridge started by hand never leaves on its own', async () => {

@@ -263,7 +263,7 @@ function pingLane(id, kind) {
 
 // ---------------------------------------------------------------- SuperCollider over OSC
 
-const SC_LANG_PORT = 57130 // where sclang listens (not the IDE's 57120)
+const SC_LANG_PORT = Number(process.env.UNDERTONE_SC_PORT) || 57130 // where sclang listens (not the IDE's 57120)
 const SC_REPLY_PORT = Number(process.env.UNDERTONE_SC_REPLY_PORT ?? 57131) // where sclang answers us
 const SC_SCRIPT = path.join(ROOT, 'sc', 'undertone.scd')
 const SCLANG = findSclang()
@@ -359,6 +359,22 @@ function sendToSc(intents) {
     const m = i && typeof i === 'object' ? toOsc(i) : null
     if (m) udp.send(oscMessage(m[0], m[1]), SC_LANG_PORT, HOST)
   }
+}
+
+// SuperCollider plays outside the page, so a page that went away without its engine's dispose()
+// (a tab closed, the browser quit) left a held sour note or drone playing to nobody, all night.
+// Once no page has listened for longer than a reload takes, it gets what dispose() would send.
+const SC_ORPHAN_MS = Number(process.env.UNDERTONE_SC_ORPHAN_MS) || 10_000
+let scOrphan = null
+function pagesChanged() {
+  clearTimeout(scOrphan)
+  if (listeners.size || !sc.ready) return
+  scOrphan = setTimeout(() => {
+    if (listeners.size || !sc.ready) return
+    sendToSc([{ k: 'level', a: 0 }, { k: 'sour', s: 'off' }, { k: 'drone', level: 0 }])
+    console.log(new Date().toISOString() + ' undertone: no page is listening; SuperCollider silenced')
+  }, SC_ORPHAN_MS)
+  scOrphan.unref()
 }
 
 // SuperCollider keeps the last 30 seconds of its output in a ring buffer; this has it written to a
@@ -574,8 +590,9 @@ const server = http.createServer((req, res) => {
     res.write('retry: 2000\n\n')
     res.write('data: ' + JSON.stringify({ type: 'hello', lanes: snap.lanes.map((l) => ({ lane: l.lane, project: l.project, label: l.label })), waitingBy: snap.waitingBy, state: snap }) + '\n\n')
     listeners.add(res)
+    pagesChanged()
     const ping = setInterval(() => res.write(': ping\n\n'), 20000)
-    req.on('close', () => { clearInterval(ping); listeners.delete(res) })
+    req.on('close', () => { clearInterval(ping); listeners.delete(res); pagesChanged() })
     return
   }
 
