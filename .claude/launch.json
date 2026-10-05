@@ -1,6 +1,12 @@
 {
   "version": "0.0.1",
   "configurations": [
-    { "name": "undertone", "runtimeExecutable": "node", "runtimeArgs": ["bridge/server.mjs"], "port": 4747 }
+    { "name": "undertone", "runtimeExecutable": "node", "runtimeArgs": ["bridge/server.mjs"], "port": 4747 },
+    {
+      "name": "undertone-scratch",
+      "runtimeExecutable": "sh",
+      "runtimeArgs": ["-c", "T=\"${TMPDIR:-/tmp}/undertone-scratch-4790\"; rm -rf \"$T\"; mkdir -p \"$T/brain\"; echo \"scratch home: $T\"; HOME=\"$T\" UNDERTONE_HOME=\"$T/.undertone\" UNDERTONE_BRAIN_DIR=\"$T/brain\" UNDERTONE_SOURCES=0 GEMINI_API_KEY= exec node bridge/server.mjs 4790"],
+      "port": 4790
+    }
   ]
 }

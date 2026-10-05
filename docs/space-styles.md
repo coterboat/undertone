@@ -189,6 +189,41 @@ they agree I take it.
 Then, in order: the build steps and the sour restatements (both system-wide), Deep field with strings,
 organ and the synth ostinato only, and the DJ transitions on top of the tiers.
 
+## DJ: transitions and takeovers (0.12.0)
+
+ME3's "holding pattern, then the big explosion", applied to who has the deck. The rules live in
+`lib/dj.mjs`; the page asks it once a bar.
+
+**What the log said.** The old rule looked every four seconds and switched to the busiest project as soon
+as it led by 0.15. Replayed over the 10-3 and 10-4 event logs, that changed the mood 6.6 and 10.2 times an
+hour; 40 of 216 tracks on 10-4 played under 16 bars, the shortest 1.5. Most of it was jobsnearme and
+ascendant trading the lead. That's a radio, and a change that carries no information.
+
+**The rules now**, chosen by replaying both days against a few settings:
+
+| Setting | Value | Why |
+| :- | :- | :- |
+| Challenge | lead by 0.3 for 32 bars running (about 80 s) | 8 bars at 0.15 still gave 6.6 changes an hour on 10-4 |
+| Hold | 32 bars at least | a track has to be a track |
+| Landing | the track's own phrase boundaries (every 8 bars from where it started) | changes land where the music expects them |
+| Blend | 2 bars of breakdown: drums and the style's layers out, the pad on a pivot chord, the tempo gliding | the pivot is the incoming chord that sits best in the outgoing key (Far shore to Deep field goes through C add9; Deep field to Daylight through A9sus4) |
+| Announce | the new lead's busiest session plays the first two notes of its call on the downbeat | who's driving, by ear (Codex and Grok: by register and interval, not by instrument) |
+| Takeover | a push or a green CI run from another project: its music at full for 16 bars, landing on a 4-bar line, then back to the lead | earned, and short |
+| Surge | the same from the project playing: the full tier for 8 bars | |
+| Cooldown | one claim per project per 30 minutes | ascendant pushed 73 times on 10-4 |
+| Yours | a lead you set, a mood you pick, a project you turn off: the next even bar after the blend | your choices don't wait out the hold |
+
+Result on the same two days: 2.2 and 2.4 changes an hour, 7 and 11 takeovers a day, nothing under 16
+bars. Scheduled runs no longer lead (outside sources never did). Verified on a scratch bridge with
+both Synth and Sampled: lead change, takeover and return, and a mood you pick, each landing on the bar
+the deck planned; 0 clicks, loudness within 2 dB through a takeover, a 4-5 dB dip for the two-bar
+breakdown.
+
+**Not done.** Tempo ratios (82/123/164) weren't needed: the glide happens while the drums are out. A
+real crossfade of two styles playing at once would need the engines to run two kits side by side; the
+breakdown does the job for now. The numbers want living with: if the lead feels sluggish when you switch
+projects, pin it, or shorten `CHALLENGE_BARS`.
+
 ## Sources
 
 Mass Effect: [1] ocremix.org/info/Composer_Interview:_Wall_of_Sound · [2] squareenixmusic.com/features/interviews/samhulick.shtml ·

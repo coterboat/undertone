@@ -1,6 +1,6 @@
 # undertone roadmap
 
-Updated 2026-10-04, at 0.11.0. What's built, what's next and in what order, and what waits on purpose. The day-to-day threads live in coter-kit's brain; this is the plan they hang off. Change it when the order changes.
+Updated 2026-10-04, at 0.12.0. What's built, what's next and in what order, and what waits on purpose. The day-to-day threads live in coter-kit's brain; this is the plan they hang off. Change it when the order changes.
 
 ## Where it is
 
@@ -21,7 +21,8 @@ Updated 2026-10-04, at 0.11.0. What's built, what's next and in what order, and 
 | 0.8.0 (`c59ad5a`) | Styles: a mood can carry its own band and groove. Blue hour, a jazz-hop trio (walking bass, ride and cross-stick, rootless piano comping, swung eighths), for undertone, coter-kit and home by default |
 | 0.9.0 (`0abd3d1`) | Afterhours, house as the second style (four on the floor, off-beat bass, stabs, the pad pumping with the kick), for home by default; a brighter walking bass on Synth and a lighter pad under jazz (Gemini's read) |
 | 0.10.0 (`44e4b2d`) | Far shore (after Mass Effect 1, docs/space-styles.md): tiers, a pulse only while a turn runs, sessions as pulse waves, one dark hall; Blue hour made consonant and taken off the defaults |
-| 0.11.0 | Deep field (after Stellaris): strings, an ostinato over a pedal, the organ only on a commit, for coter-kit by default; a mood changed while paused or loading now brings its own tempo and swing |
+| 0.11.0 (`5db4282`) | Deep field (after Stellaris): strings, an ostinato over a pedal, the organ only on a commit, for coter-kit by default; a mood changed while paused or loading now brings its own tempo and swing |
+| 0.12.0 | The DJ (lib/dj.mjs): a lead has to be earned over a minute, tracks hold 32 bars and change on a phrase after a two-bar breakdown on a shared chord; pushes and green CI runs take over for 16 bars. Replayed over two real days: 2.2 and 2.4 changes an hour instead of 6.6 and 10.2. The ears stop counting a pulse wave's edges as clicks |
 
 ## Now
 
@@ -30,7 +31,7 @@ Updated 2026-10-04, at 0.11.0. What's built, what's next and in what order, and 
 
 ## Next, in order
 
-1. **The DJ (styles), in order:** transitions (a track holds 16 bars, changes on phrase boundaries, keys one step apart, tempos in ratios like 82/123/164); then takeovers earned by pushes and green deploys; then the crate (chamber, ambient, synthwave, an Iron Veil boss fight).
+1. **The DJ (styles):** transitions and takeovers are in (0.12.0). Next: live with them and tune the numbers in `lib/dj.mjs` by ear; then the crate (chamber, ambient, synthwave, an Iron Veil boss fight). Tempo ratios (82/123/164) weren't needed: the tempo glides while the drums are out.
 2. **Home dashboard** on `GET /state` and `GET /timesheet`: every session at a glance, what needs you first, what's failing. The data is there since 0.3.
 3. **Synth tuning loop.** First round in 0.6.3 (the pops, the snare's snap, the bass under the kick), measured with a before/after rig: two scratch bridges replaying the same real events into two muted pages. Still open from earlier reads: mud at 180-300 Hz, hiss sitting alone on top.
 4. **More outside sources**, each a lane that colors the music without leading it: wallstbets bots (fills as pulses, a stalled bot as a failing check), a Grok review landing. (GitHub Actions came in 0.7.0.)

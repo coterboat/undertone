@@ -302,7 +302,7 @@ tr.attn td:first-child { color: var(--call); }
 
     <div class="panel projects">
       <h2>Projects</h2>
-      <p class="hint">Pick what you hear. The lead project sets the key and tempo.</p>
+      <p class="hint">Pick what you hear. The lead project sets the key and tempo; set one and it changes on the next bar or two.</p>
       <div class="leadrow">Lead
         <button id="leadAuto" class="lead" type="button" aria-pressed="true">Auto: the busiest</button>
       </div>
@@ -357,6 +357,8 @@ tr.attn td:first-child { color: var(--call); }
           <tr class="attn"><td>Something breaks</td><td>a failing test, typecheck, lint or build; coter-kit checks blocking a stop; production errors</td><td>The session's call with its last note flat, then a sour note held over every chord. Each kind has its own: tests a tritone, typecheck a high grinding second, lint a softer seventh, build a low second, production errors a low rumble. The score names it.</td></tr>
           <tr><td>It's fixed</td><td>the same check passes (a different check passing doesn't count)</td><td>The session's call, settled, and the sour note slides into the chord.</td></tr>
           <tr><td>Commit or push</td><td><code>git commit</code>, <code>git push</code> in Bash</td><td>The progression resolves to the home chord, with bells in that session's lane. A commit and push in one go count once.</td></tr>
+          <tr><td>Another project takes the lead</td><td>it out-works the one playing for over a minute</td><td>Two bars of breakdown (drums and pulse drop out, the pad holds a chord both keys share, the tempo glides), then its music, on the start of a phrase, and its busiest session plays the first two notes of its call. A track plays at least 32 bars. The score names the change.</td></tr>
+          <tr><td>Push or green CI</td><td><code>git push</code>; a GitHub Actions run passing</td><td>From another project: a takeover, its music at full for 16 bars, then back to the lead. From the project playing: the full arrangement for 8 bars. Once per project per half hour.</td></tr>
           <tr><td>Tool call</td><td>every tool call</td><td>A note in that session's voice. Reads sit low, edits land on chord tones, commands ride high.</td></tr>
           <tr><td>Claude is working</td><td>turn start / end</td><td>Drums fade in. When every session goes quiet, it thins back to pads and tape hiss.</td></tr>
           <tr><td>Checklist step</td><td>coter-kit checklist</td><td>A bell climbs one step. A finished list lands home.</td></tr>
@@ -380,6 +382,8 @@ tr.attn td:first-child { color: var(--call); }
 // What the page shares with the bridge (lib/lanes.mjs): which lanes are outside sources, which
 // check a failure is about, and the sour note each kind of failure gets
 const L = await import('./lib/lanes.mjs');
+// The DJ (lib/dj.mjs): who has the deck, when the music may change, the chord it changes on
+const DJ = await import('./lib/dj.mjs');
 
 const qs = (s) => document.querySelector(s);
 // Live when the bridge served this page (it adds the meta), at 127.0.0.1 or a name in its hosts.json
@@ -489,8 +493,10 @@ const S = {
   engine: null,         // the running engine
   engineId: ENGINES.get(saved.engine) && (LIVE || !ENGINES.get(saved.engine).local) ? saved.engine : 'synth',
   moodKey: 'lofi',
-  pendingMood: null,
-  leadNow: null,
+  leadNow: null,        // the project whose music is playing (the deck's)
+  deck: DJ.createDeck(),
+  blend: null,          // the breakdown before a change: { to, pivot, at }
+  scores: {},           // how busy each project is, for the lead
   chordIdx: -1,
   chord: null,
   landHome: false,
@@ -662,25 +668,28 @@ function tick(time) {
 
   if (sib === 0) {
     vis.bars.push(toVis(time));
-    if (bar % 2 === 0) changeChord(time);
+    const landed = djBar(bar, time);
+    if ((bar - S.deck.since) % 2 === 0) changeChord(time, landed);
     const busy = [...lanes.values()].some((l) => l.busy && !l.off);
-    const want = S.drumsOn && (busy || En > 0.35) ? 1 : 0;
-    S.drumLevel = clamp(S.drumLevel + (want - S.drumLevel) * 0.35, 0, 1);
+    const want = S.drumsOn && !S.blend && (busy || En > 0.35) ? 1 : 0;
+    S.drumLevel = clamp(S.drumLevel + (want - S.drumLevel) * (S.blend ? 0.6 : 0.35), 0, 1);
     E('energy', En, time, mood().padHz);
     askTick(bar, time);
     updateTier(bar, En);
   }
 
+  // The styles count bars from where the track started, so a change lands on the start of their phrase
+  const tb = Math.max(0, bar - S.deck.since);
   if (mood().style === 'jazz') {
-    walkingBass(sib, bar, time, En);
+    walkingBass(sib, tb, time, En);
     jazzComp(sib, time, En);
   } else if (mood().style === 'house') {
     houseBass(sib, time, En);
     houseStabs(sib, time, En);
   } else if (mood().style === 'farshore') {
-    farShore(sib, bar, time);
+    farShore(sib, tb, time);
   } else if (mood().style === 'deepfield') {
-    deepField(sib, bar, time);
+    deepField(sib, tb, time);
   } else {
     const b = S.chord.bass;
     if (sib === 0) E('bass', b, time, Tone.Time('2n').toSeconds(), 0.8);
@@ -769,7 +778,7 @@ function updateTier(bar, En) {
   if (target > S.tier && bar - S.tierAt >= 2) { S.tier += 1; S.tierAt = bar; S.tierLow = 0; E('tier', S.tier); }
   else if (target < S.tier) { if (++S.tierLow >= 8) { S.tier -= 1; S.tierAt = bar; S.tierLow = 0; E('tier', S.tier); } }
   else S.tierLow = 0;
-  const want = (TIER_LAYERS[mood().style] || (() => ({})))(S.tier, busy, S.surgeUntil > bar);
+  const want = S.blend ? {} : (TIER_LAYERS[mood().style] || (() => ({})))(S.tier, busy, S.surgeUntil > bar);
   for (const k of new Set([...Object.keys(want), ...Object.keys(S.layers)])) S.layers[k] = clamp((S.layers[k] || 0) + (want[k] ? 0.5 : -0.5), 0, 1);
 }
 
@@ -953,12 +962,14 @@ function laneTick(ln, sib, time) {
   playLane(ln, pickNote(ln, kind), time, (VEL[kind] || 0.4) * rand(0.85, 1.1));
 }
 
-function changeChord(time) {
-  if (S.pendingMood && S.pendingMood !== S.moodKey) applyMood(S.pendingMood, time);
-  S.pendingMood = null;
+function changeChord(time, landed) {
   const m = mood();
   let home = false;
-  if (S.landHome) {
+  if (S.blend && !S.blend.held) {
+    // The breakdown holds the pivot: a chord of the incoming track that sits in this one's key
+    S.blend.held = true;
+    S.chord = S.blend.pivot;
+  } else if (S.landHome) {
     S.chord = chordOf(m, m.home); S.landHome = false; home = true;
     if (m.style === 'deepfield') S.surgeUntil = Math.floor(S.step / 16) + 4; // the organ rises on a commit
   }
@@ -968,7 +979,7 @@ function changeChord(time) {
   for (const ln of lanes.values()) ln.pool = poolFor(m, S.chord, ln.timbre);
   if (S.sourOn) { S.sourMidi = sourMidi(); E('sour', 'move', S.sourMidi, time); }
   const name = S.chord.name;
-  vis.chords.push({ t: toVis(time), name, home });
+  vis.chords.push({ t: toVis(time), name, home, deck: landed ? deckLabel(landed) : '' });
   Tone.getDraw().schedule(() => { qs('#chord').textContent = name; }, time);
 }
 
@@ -1262,6 +1273,7 @@ function ingest(e, source) {
     }
     case 'commit': case 'push': {
       if (ln.off) break;
+      if (e.type === 'push' && !ln.external && !ln.scheduled) deckClaim(ln);
       // `git commit && git push` is one moment: one mark that says both, one landing, one bell
       const twin = vis.marks.find((k) => k.type === 'commit' && k.lane === ln.id && wall() - k.t < 3);
       if (twin) { twin[e.type] = true; break; }
@@ -1291,6 +1303,8 @@ function ingest(e, source) {
         delete ln.failChecks[check];
         playFixed(ln);
       }
+      // A CI run going green is a claim on the deck, like a push
+      if (ln.external && check.startsWith('ci:') && !ln.off) deckClaim(ln);
       updateSour();
       break;
     }
@@ -1324,32 +1338,107 @@ function ingest(e, source) {
   renderLanesSoon();
 }
 
+// A push or a green CI run: from the project on the deck, a surge (the full tier a while); from another,
+// a takeover (lib/dj.mjs). Each project claims at most once in half an hour.
+function deckClaim(ln) {
+  if (!S.playing || !S.audio) return;
+  const bar = Math.floor(S.step / 16);
+  if (DJ.claim(S.deck, ln.project, bar, Date.now(), moodOfProject) === 'surge') S.surgeUntil = Math.max(S.surgeUntil, bar + S.deck.o.SURGE_BARS);
+}
+
 function energy() {
   let quiet = 1;
   for (const l of lanes.values()) if (!l.ended && !l.off) quiet *= 1 - l.energy * 0.9;
   return 1 - quiet;
 }
 
-// The lead project sets the mood. Auto picks the busiest project of the last three minutes and
-// stays put when everything is quiet, so an idle session can't steal the key.
-function pickLead() {
-  let lead = null;
-  if (P.lead !== 'auto' && P.list.has(P.lead) && P.list.get(P.lead).on) lead = P.lead;
-  else {
-    const score = {};
-    for (const l of lanes.values()) {
-      if (l.ended || l.off || l.external || wall() - l.lastWork > 180) continue;
-      score[l.project] = (score[l.project] || 0) + l.energy + (l.busy ? 0.3 : 0);
-    }
-    const ranked = Object.keys(score).sort((a, b) => score[b] - score[a]);
-    const cur = S.leadNow && score[S.leadNow] != null ? score[S.leadNow] : -1;
-    if (ranked.length && (cur < 0 || score[ranked[0]] > cur + 0.15)) lead = ranked[0];
-    else lead = S.leadNow;
+// The lead project sets the mood. Auto picks the busiest project of the last three minutes (outside
+// sources and scheduled runs never lead) and stays put when everything is quiet, so an idle session
+// can't steal the key. While playing, the DJ (lib/dj.mjs) decides once a bar who has the deck and when
+// the music changes; stopped, the pick applies at once.
+function leadScores() {
+  const score = {};
+  for (const l of lanes.values()) {
+    if (l.ended || l.off || l.external || l.scheduled || wall() - l.lastWork > 180) continue;
+    score[l.project] = (score[l.project] || 0) + l.energy + (l.busy ? 0.3 : 0);
   }
-  if (lead && lead !== S.leadNow) S.leadNow = lead;
-  qs('#leadOut').textContent = S.leadNow ? (P.lead === 'auto' ? S.leadNow : S.leadNow + ' (set)') : 'auto';
-  setMood(S.leadNow ? moodOfProject(S.leadNow) : S.moodKey);
+  return score;
 }
+const pinnedLead = () => (P.lead !== 'auto' && P.list.has(P.lead) && P.list.get(P.lead).on ? P.lead : null);
+
+function pickLead() {
+  S.scores = leadScores();
+  const d = S.deck;
+  if (!S.audio || !S.playing) {
+    let lead = pinnedLead();
+    if (!lead) {
+      const ranked = Object.keys(S.scores).sort((a, b) => S.scores[b] - S.scores[a]);
+      const cur = d.lead && S.scores[d.lead] != null ? S.scores[d.lead] : -1;
+      lead = ranked.length && (cur < 0 || S.scores[ranked[0]] > cur + d.o.MARGIN) ? ranked[0] : d.lead;
+    }
+    if (lead) {
+      Object.assign(d, { on: lead, lead, mood: moodOfProject(lead), since: Math.floor(S.step / 16), next: null, takeover: null, challenger: null, streak: 0, asked: false });
+      S.blend = null;
+      S.leadNow = lead;
+      setMood(d.mood);
+    }
+  }
+  showLead();
+}
+
+function showLead() {
+  const d = S.deck;
+  const who = S.leadNow ? S.leadNow + (d.takeover ? ' (takeover)' : P.lead === 'auto' ? '' : ' (set)') : 'auto';
+  qs('#leadOut').textContent = who;
+}
+
+// Once a bar, while playing: the deck may land a change (this bar) or start a breakdown (a change two bars
+// out: drums and the style's layers drop away, the pad holds the pivot chord, the tempo glides)
+function djBar(bar, time) {
+  const d = S.deck;
+  const r = DJ.onBar(d, bar, { scores: S.scores, pinned: pinnedLead(), moodOf: moodOfProject });
+  let landed = null;
+  if (r.landed) landed = land(r.landed, bar, time);
+  const n = d.next;
+  if (n && n.blend && !S.blend && bar === n.at - d.o.BLEND_BARS && MOODS[n.mood]) {
+    const to = MOODS[n.mood];
+    const chords = to.prog.map((c) => chordOf(to, c));
+    S.blend = { to: n.mood, pivot: chords[DJ.pivotIndex(mood(), chords.map((c) => c.pcs))], at: n.at, held: false };
+    S.audio.T.bpm.rampTo(to.bpm, Tone.Time('1m').toSeconds() * d.o.BLEND_BARS, time);
+  }
+  return landed;
+}
+
+function land(n, bar, time) {
+  S.blend = null;
+  S.leadNow = n.project;
+  if (n.mood !== S.moodKey && MOODS[n.mood]) applyMood(n.mood, time);
+  if (n.reason === 'takeover') {
+    // It earned it: the takeover comes in at full, straight away
+    S.surgeUntil = bar + S.deck.o.TAKEOVER_BARS;
+    S.tier = 2; S.tierAt = bar; S.tierLow = 0;
+    for (const [k, on] of Object.entries((TIER_LAYERS[mood().style] || (() => ({})))(2, true, true))) if (on) S.layers[k] = 1;
+    S.drumLevel = S.drumsOn ? 1 : 0;
+    E('tier', 2);
+  }
+  announce(n.project, time);
+  Tone.getDraw().schedule(showLead, time);
+  return n;
+}
+
+// Whoever takes the deck says so: its busiest session plays the first two notes of its own call on the
+// downbeat, so you hear who's driving before you look
+function announce(project, time) {
+  let ln = null;
+  for (const l of lanes.values()) if (l.project === project && !l.off && !l.muted && !l.ended && (!ln || l.energy > ln.energy)) ln = l;
+  if (!ln || !S.callsOn) return;
+  ln.pool = poolFor(mood(), S.chord, ln.timbre);
+  const notes = callOf(ln, false).slice(0, 2);
+  const eighth = Tone.Time('8n').toSeconds();
+  notes.forEach((m, i) => playLane(ln, m, time + i * eighth, 0.5, i ? 0.5 : 0.3));
+}
+
+const deckLabel = (n) => MOODS[n.mood].name + ' · ' + n.project + (n.reason === 'takeover' ? ' takes over' : n.reason === 'return' ? ' again' : '');
 
 // Tempo, swing and the engine's style, straight to the mood's (no ramp): for when it changes while the
 // audio is built but not playing (paused, or a Sampled engine still loading after Play). Without this the
@@ -1363,14 +1452,11 @@ function syncTransport() {
   E('style', m.style || 'lofi');
 }
 
+// Stopped, a mood applies at once (playing, the DJ changes it on a phrase: djBar)
 function setMood(key) {
   if (!MOODS[key]) return;
-  if (!S.audio || !S.playing) {
-    if (key !== S.moodKey) { S.moodKey = key; S.chordIdx = -1; S.chord = chordOf(mood(), mood().prog[0]); syncTransport(); }
-    showMood();
-    return;
-  }
-  if (key !== S.moodKey) S.pendingMood = key;
+  if (key !== S.moodKey) { S.moodKey = key; S.chordIdx = -1; S.chord = chordOf(mood(), mood().prog[0]); syncTransport(); }
+  showMood();
 }
 
 function showMood() {
@@ -1633,7 +1719,7 @@ function earState() {
   const r2 = (x) => Math.round(x * 100) / 100;
   return {
     engine: S.engineId, mood: S.moodKey, moodName: mood().name, key: mood().label, bpm: mood().bpm, chord: S.chord.name,
-    lead: S.leadNow, texture: S.texture, volume: S.volume, capture: S.audio && S.audio.capture ? S.audio.capture.via : '', drumLevel: r2(S.drumLevel), energy: r2(energy()), sour: S.sourOn, waiting: total,
+    lead: S.leadNow, deck: { lead: S.deck.lead, since: S.deck.since, next: S.deck.next, takeover: S.deck.takeover, blend: !!S.blend }, tier: S.tier, texture: S.texture, volume: S.volume, capture: S.audio && S.audio.capture ? S.audio.capture.via : '', drumLevel: r2(S.drumLevel), energy: r2(energy()), sour: S.sourOn, waiting: total,
     lanes: [...lanes.values()].filter((l) => !l.ended).map((l) => ({
       label: l.label, project: l.project, timbre: l.timbre, busy: l.busy, failing: Object.keys(l.failChecks), needs: l.needs, off: l.off, muted: l.muted, energy: r2(l.energy),
     })),
@@ -1760,6 +1846,7 @@ function setProjectOn(name, on) {
   project(name).on = on;
   for (const l of lanes.values()) if (l.project === name) l.off = !on;
   if (!on && P.lead === name) P.lead = 'auto';
+  if (!on && S.deck.lead === name) S.deck.asked = true;
   save();
   updateSour();
   updateDrone();
@@ -1779,11 +1866,12 @@ qs('#projList').addEventListener('click', (ev) => {
   const name = b.dataset.projLead;
   P.lead = P.lead === name ? 'auto' : name;
   if (P.lead !== 'auto') { project(name).on = true; for (const l of lanes.values()) if (l.project === name) l.off = false; }
+  else S.deck.asked = true;
   save();
   pickLead();
   renderProjects();
 });
-qs('#leadAuto').addEventListener('click', () => { P.lead = 'auto'; save(); pickLead(); renderProjects(); });
+qs('#leadAuto').addEventListener('click', () => { P.lead = 'auto'; S.deck.asked = true; save(); pickLead(); renderProjects(); });
 
 let lanesQueued = false;
 function renderLanesSoon() {
@@ -1947,6 +2035,7 @@ function draw() {
     g.fillStyle = c.home ? colors.gold : colors.muted;
     g.fillRect(Math.round(x), 8, 1, 12);
     g.fillText(c.name + (c.home ? '  home' : ''), x + 6, 14);
+    if (c.deck) { g.fillStyle = colors.gold; g.fillText(c.deck, x + 6 + g.measureText(c.name + '   ').width, 14); }
   }
 
   if (!live.length) {
