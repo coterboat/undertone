@@ -140,8 +140,11 @@
     pad.maxPolyphony = 12
     pad.volume.value = -18
     const padDuck = keep(new Tone.Gain(1))
-    pad.chain(keep(new Tone.Filter(150, 'highpass')), keep(new Tone.Filter(800, 'lowpass')), padDuck)
+    const padLp = keep(new Tone.Filter(800, 'lowpass'))
+    pad.chain(keep(new Tone.Filter(150, 'highpass')), padLp, padDuck)
     route(padDuck, 1)
+    // The pad breathes: its low-pass drifts 600-1000 Hz over about 24 s (10-4: "a little bland")
+    keep(new Tone.LFO({ frequency: 1 / 24, min: 600, max: 1000 })).connect(padLp.frequency).start()
 
     // The pulse: a sine with a triangle an octave up, 8 ms in, 160 ms out, low-passed near 180 Hz, dry
     const pulseLp = keep(new Tone.Filter(180, 'lowpass'))
@@ -180,6 +183,28 @@
     tick.connect(tickBand)
     route(tickBand, 0.1)
 
+    // Working: the galaxy-map arpeggio (ME1's "Uncharted Worlds" ostinato, in craft not notes): quiet saw
+    // eighths on the chord's tones through a resonant low-pass that sweeps every 8 bars or so, a dotted-
+    // eighth echo, mostly in the hall. Texture under the sessions, not a voice of its own.
+    const arpLp = keep(new Tone.Filter({ frequency: 900, type: 'lowpass', Q: 4 }))
+    keep(new Tone.LFO({ frequency: 1 / 19, min: 500, max: 1700 })).connect(arpLp.frequency).start()
+    const arpEcho = keep(stereo(new Tone.FeedbackDelay({ delayTime: '8n.', feedback: 0.32, wet: 0.3 })))
+    const arp = keep(new Tone.PolySynth(Tone.Synth, { oscillator: { type: 'sawtooth' }, envelope: { attack: 0.006, decay: 0.22, sustain: 0, release: 0.2 } }))
+    arp.maxPolyphony = 6
+    arp.volume.value = -27
+    arp.chain(arpLp, arpEcho)
+    route(arpEcho, 0.45)
+    // Full: CS-80 brass, a slow detuned-saw swell whose filter opens as it grows, on each chord change
+    const brass = keep(new Tone.PolySynth(Tone.MonoSynth, {
+      oscillator: { type: 'fatsawtooth', count: 3, spread: 16 },
+      envelope: { attack: 0.9, decay: 0.8, sustain: 0.7, release: 1.8 },
+      filter: { Q: 1, type: 'lowpass', rolloff: -24 },
+      filterEnvelope: { attack: 1.2, decay: 1, sustain: 0.5, release: 1.8, baseFrequency: 260, octaves: 2.2 },
+    }))
+    brass.maxPolyphony = 6
+    brass.volume.value = -24
+    route(brass, 0.6)
+
     // Asks and commits: short sine blips, an octave above the pad
     const blip = keep(new Tone.PolySynth(Tone.Synth, { oscillator: { type: 'sine' }, envelope: { attack: 0.004, decay: 0.5, sustain: 0, release: 0.4 } }))
     blip.maxPolyphony = 8
@@ -200,6 +225,8 @@
         }
         if (name === 'accent') { accent.triggerAttackRelease(hz(notes[0]), dur, time, vel); return true }
         if (name === 'tick') { tick.triggerAttackRelease(dur, time, vel); return true }
+        if (name === 'arp') { arp.triggerAttackRelease(hz(notes[0]), dur, time, vel); return true }
+        if (name === 'brass') { brass.triggerAttackRelease(notes.map(hz), dur, time, vel); return true }
         return false
       },
       tier(t) { hallIn.gain.rampTo([0.3, 0.18, 0.12][t] ?? 0.3, 2) },
@@ -259,6 +286,30 @@
     const boom = keep(new Tone.MembraneSynth({ pitchDecay: 0.08, octaves: 2, envelope: { attack: 0.004, decay: 1.6, sustain: 0, release: 0.4 } }))
     boom.volume.value = -16
     route(boom, 0.5)
+    // The drive (after "Synthetic God"): a kick on the beat, a tight sub on the eighths, a square
+    // sequencer on the ostinato's notes in sixteenths, an off-beat hat; for the lift before it, a soft
+    // noise riser. Tight means short: nothing here rings past its step.
+    const kick = keep(new Tone.MembraneSynth({ pitchDecay: 0.03, octaves: 5, envelope: { attack: 0.002, decay: 0.32, sustain: 0, release: 0.1 } }))
+    kick.volume.value = -13
+    route(kick, 0.04)
+    const subLp = keep(new Tone.Filter(220, 'lowpass'))
+    route(subLp, 0)
+    const subBass = keep(new Tone.Synth({ oscillator: { type: 'sawtooth' }, envelope: { attack: 0.006, decay: 0.16, sustain: 0, release: 0.05 } }))
+    subBass.volume.value = -15
+    subBass.connect(subLp)
+    const seq = poly(Tone.Synth, { oscillator: { type: 'square' }, envelope: { attack: 0.004, decay: 0.1, sustain: 0, release: 0.06 } }, -27, 0.3,
+      new Tone.Filter(2200, 'lowpass'))
+    const hatHp = keep(new Tone.Filter(7000, 'highpass'))
+    route(hatHp, 0.15)
+    const hat = keep(new Tone.NoiseSynth({ noise: { type: 'white' }, envelope: { attack: 0.001, decay: 0.035, sustain: 0 } }))
+    hat.volume.value = -31
+    hat.connect(hatHp)
+    const riserBp = keep(new Tone.Filter({ frequency: 300, type: 'bandpass', Q: 2 }))
+    route(riserBp, 0.6)
+    const riser = keep(new Tone.NoiseSynth({ noise: { type: 'pink' }, envelope: { attack: 2, decay: 0.1, sustain: 1, release: 0.25 } }))
+    riser.volume.value = -30
+    riser.connect(riserBp)
+
     const voices = {
       keys: poly(Tone.FMSynth, { harmonicity: 2, modulationIndex: 1, envelope: { attack: 0.005, decay: 1.2, sustain: 0, release: 0.8 } }, -14, 0.4),
       pluck: poly(Tone.Synth, { oscillator: { type: 'triangle' }, envelope: { attack: 0.004, decay: 0.6, sustain: 0, release: 0.4 } }, -14, 0.4),
@@ -298,6 +349,17 @@
         if (name === 'pedal') { pedal.triggerAttackRelease(hz(notes[0]), dur, time, vel); return true }
         if (name === 'organ') { organ.triggerAttackRelease(notes.map(hz), dur, time, vel); return true }
         if (name === 'boom') { boom.triggerAttackRelease(hz(notes[0]), '2n', time, vel); return true }
+        if (name === 'kick') { kick.triggerAttackRelease(hz(notes[0]), 0.2, time, vel); return true }
+        if (name === 'sub') { subBass.triggerAttackRelease(hz(notes[0]), dur, time, vel); return true }
+        if (name === 'seq') { seq.triggerAttackRelease(hz(notes[0]), dur, time, vel); return true }
+        if (name === 'hat') { hat.triggerAttackRelease(dur, time, vel); return true }
+        if (name === 'riser') {
+          riser.envelope.attack = Math.max(0.2, dur - 0.25)
+          riserBp.frequency.setValueAtTime(300, time)
+          riserBp.frequency.exponentialRampToValueAtTime(3200, time + dur)
+          riser.triggerAttackRelease(Math.max(0.2, dur - 0.25), time, vel)
+          return true
+        }
         return false
       },
       tier(t) { hallIn.gain.rampTo([0.35, 0.25, 0.2][t] ?? 0.35, 2) },

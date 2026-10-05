@@ -1,6 +1,6 @@
 # undertone roadmap
 
-Updated 2026-10-04, at 0.12.0. What's built, what's next and in what order, and what waits on purpose. The day-to-day threads live in coter-kit's brain; this is the plan they hang off. Change it when the order changes.
+Updated 2026-10-04, at 0.13.0. What's built, what's next and in what order, and what waits on purpose. The day-to-day threads live in coter-kit's brain; this is the plan they hang off. Change it when the order changes.
 
 ## Where it is
 
@@ -22,7 +22,8 @@ Updated 2026-10-04, at 0.12.0. What's built, what's next and in what order, and 
 | 0.9.0 (`0abd3d1`) | Afterhours, house as the second style (four on the floor, off-beat bass, stabs, the pad pumping with the kick), for home by default; a brighter walking bass on Synth and a lighter pad under jazz (Gemini's read) |
 | 0.10.0 (`44e4b2d`) | Far shore (after Mass Effect 1, docs/space-styles.md): tiers, a pulse only while a turn runs, sessions as pulse waves, one dark hall; Blue hour made consonant and taken off the defaults |
 | 0.11.0 (`5db4282`) | Deep field (after Stellaris): strings, an ostinato over a pedal, the organ only on a commit, for coter-kit by default; a mood changed while paused or loading now brings its own tempo and swing |
-| 0.12.0 | The DJ (lib/dj.mjs): a lead has to be earned over a minute, tracks hold 32 bars and change on a phrase after a two-bar breakdown on a shared chord; pushes and green CI runs take over for 16 bars. Replayed over two real days: 2.2 and 2.4 changes an hour instead of 6.6 and 10.2. The ears stop counting a pulse wave's edges as clicks |
+| 0.12.0 (`ab268e7`) | The DJ (lib/dj.mjs): a lead has to be earned over a minute, tracks hold 32 bars and change on a phrase after a two-bar breakdown on a shared chord; pushes and green CI runs take over for 16 bars. Replayed over two real days: 2.2 and 2.4 changes an hour instead of 6.6 and 10.2. The ears stop counting a pulse wave's edges as clicks |
+| 0.13.0 | After "Synthetic God" (Alex's reference): Deep field earns a drive (a lift, a drop to 120 with kick, sub, sixteenth sequencer and hat, back when the room calms; about 3 an hour on a real day). Far shore less bland: the galaxy-map arpeggio, CS-80 brass swells, a breathing pad, richer voicings every other pass |
 
 ## Now
 

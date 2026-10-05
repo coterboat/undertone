@@ -189,6 +189,43 @@ they agree I take it.
 Then, in order: the build steps and the sour restatements (both system-wide), Deep field with strings,
 organ and the synth ostinato only, and the DJ transitions on top of the tiers.
 
+## Synthetic God: the arc Deep field took (0.13.0)
+
+Alex, 10-4, on Far shore and Deep field after living with them: "deep field is great, can be even better.
+far shore is alright, a little boring/bland". The reference they gave: Andreas Waldetoft's "Synthetic
+God" (Stellaris: Synthetic Dawn, 4:56), "starts slow and stringy, then by the time it gets into full swing
+it's faster tempo tighter instruments, and a wild ride". Measured from Alex's own copy (decoded with
+ffmpeg, a small analyzer in Node; numbers only, nothing of the music kept):
+
+| | 0:00-1:40 | 1:40 | 2:00-4:30 |
+| :- | :- | :- | :- |
+| Pulse | no firm grid: ~80 with 108/161 (triplet) echoes | a dip in the mids, a breakdown | a hard 120 grid (80 to 120 is 3:2) |
+| Loudness | -25 rising to -17 dB | | -8 dB |
+| Low end | steady | | +10 dB: a kick and sub arrive |
+| Top end | steps up every ~20 s (-12, -2, +3, +6, +7 dB): layers entering one at a time | | +15 to +18 dB |
+| Onsets | ~2 a second, rising to ~5 | | 6-7 a second, tight |
+| Key | D minor (an excursion to C and F/Bb around 1:15) | | D minor |
+
+**Deep field took the arc, earned.** The build in steps it already had (calm strings, then ostinato and
+pedal, then thickening). New: when the room holds the full tier for 32 bars, a 2-bar lift (strings and a
+soft riser, everything else out), then on a phrase line the drop: 90 to 120, "Synthetic God"'s own drive
+tempo, with a kick on the beat, a tight saw sub on the eighths following the chord, the ostinato as a
+square sequencer in sixteenths, and an off-beat hat. It lasts while the room stays full, 64 bars at most,
+breaks down back to 90 in 2 bars, and rests 64 bars. Replayed over the 10-3 and 10-4 logs (the full tier is
+20-26% of a day): 2.7-3.7 drops an hour, 6-8% of the day in drive. The drop is +3 dB, not +10: it's still
+background. It says "the room has been flat out for over a minute"; Stellaris's crisis loop is why it
+ends on its own.
+
+**Far shore got movement**, in the ME1 craft the first build held back: the galaxy-map arpeggio in the
+working tier (quiet saw eighths on the chord's tones, a resonant low-pass sweeping over ~19 s, a
+dotted-eighth echo, mostly in the hall), CS-80 brass swells on chord changes in the full tier (detuned
+saws whose filter opens as they grow), a pad whose filter breathes over ~24 s, and every other pass
+through the progression on richer voicings of the same chords (Em(add9), Dadd9, Cmaj7#11, Bsus4: the
+raised fourth is ME1's wonder). +2 dB at the full tier.
+
+Verified on a scratch bridge, Sampled and Synth: lift, drop, cap and release on the planned bars, 0
+clicks on every clip.
+
 ## DJ: transitions and takeovers (0.12.0)
 
 ME3's "holding pattern, then the big explosion", applied to who has the deck. The rules live in

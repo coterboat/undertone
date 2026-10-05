@@ -358,6 +358,7 @@ tr.attn td:first-child { color: var(--call); }
           <tr><td>It's fixed</td><td>the same check passes (a different check passing doesn't count)</td><td>The session's call, settled, and the sour note slides into the chord.</td></tr>
           <tr><td>Commit or push</td><td><code>git commit</code>, <code>git push</code> in Bash</td><td>The progression resolves to the home chord, with bells in that session's lane. A commit and push in one go count once.</td></tr>
           <tr><td>Another project takes the lead</td><td>it out-works the one playing for over a minute</td><td>Two bars of breakdown (drums and pulse drop out, the pad holds a chord both keys share, the tempo glides), then its music, on the start of a phrase, and its busiest session plays the first two notes of its call. A track plays at least 32 bars. The score names the change.</td></tr>
+          <tr><td>Flat out for a while</td><td>the full tier held over a minute (Deep field)</td><td>Two bars of strings and a riser, then a drop: a third faster, a kick, a tight sub, the ostinato in sixteenths. Back when the room calms or after two minutes, then it rests.</td></tr>
           <tr><td>Push or green CI</td><td><code>git push</code>; a GitHub Actions run passing</td><td>From another project: a takeover, its music at full for 16 bars, then back to the lead. From the project playing: the full arrangement for 8 bars. Once per project per half hour.</td></tr>
           <tr><td>Tool call</td><td>every tool call</td><td>A note in that session's voice. Reads sit low, edits land on chord tones, commands ride high.</td></tr>
           <tr><td>Claude is working</td><td>turn start / end</td><td>Drums fade in. When every session goes quiet, it thins back to pads and tape hiss.</td></tr>
@@ -422,6 +423,7 @@ const QUALITY = {
   m11: [0, 3, 7, 10, 14, 17], '9sus4': [0, 5, 7, 10, 14], '6/9': [0, 4, 7, 9, 14], '9': [0, 4, 7, 10, 14],
   'm(add9)': [0, 3, 7, 14],
   sus2: [0, 2, 7], add9: [0, 4, 7, 14], // open voicings for the space styles
+  sus4: [0, 5, 7], 'maj7#11': [0, 4, 7, 11, 18], // Far shore's second pass: the raised fourth is ME1's wonder
 };
 
 // Each mood loops a progression that never quite resolves; a commit sends it home.
@@ -437,7 +439,8 @@ const MOODS = {
   // Far shore (after Mass Effect 1; docs/space-styles.md): E Aeolian on sus2 voicings over a pulse that
   // plays only while a turn runs, a dark hall, every session a pulse wave in its own register. No drums
   // but a tick in the full tier. Almost nothing moves.
-  farshore: { name: 'Far shore', label: 'E minor', tonic: 40, sharp: true, bpm: 100, swing: 0, scale: [0, 2, 3, 7, 10], prog: [[0, 'sus2'], [10, 'sus2'], [8, 'add9'], [7, 'm7']], home: [0, 'm(add9)'], drums: 'none', style: 'farshore', padHz: 800, chordLanes: true },
+  // Every other pass takes richer voicings of the same chords (alt), so the loop varies without meaning more.
+  farshore: { name: 'Far shore', label: 'E minor', tonic: 40, sharp: true, bpm: 100, swing: 0, scale: [0, 2, 3, 7, 10], prog: [[0, 'sus2'], [10, 'sus2'], [8, 'add9'], [7, 'm7']], alt: [[0, 'm(add9)'], [10, 'add9'], [8, 'maj7#11'], [7, 'sus4']], home: [0, 'm(add9)'], drums: 'none', style: 'farshore', padHz: 800, chordLanes: true },
   // Deep field (after Stellaris; docs/space-styles.md): D Aeolian, i-bVII-bVI-v with no leading tone, so
   // nothing pulls toward an ending; strings, a sine-and-saw ostinato over a pedal; the organ rises only
   // when you commit.
@@ -498,6 +501,9 @@ const S = {
   blend: null,          // the breakdown before a change: { to, pivot, at }
   scores: {},           // how busy each project is, for the lead
   surgeAsked: false,    // a surge waiting for the next bar
+  drive: DJ.createDrive(), // Deep field's drop (lib/dj.mjs)
+  driving: false,       // in the drive: its layers, 4:3 the tempo
+  lift: false,          // the drive's lift in or breakdown out: everything but the strings steps aside
   chordIdx: -1,
   chord: null,
   landHome: false,
@@ -676,6 +682,7 @@ function tick(time) {
     S.drumLevel = clamp(S.drumLevel + (want - S.drumLevel) * (S.blend ? 0.6 : 0.35), 0, 1);
     E('energy', En, time, mood().padHz);
     askTick(bar, time);
+    driveBar(bar, time);
     updateTier(bar, En);
   }
 
@@ -767,10 +774,13 @@ function jazzComp(sib, time, En) {
 // heard: up fast (a step every two bars), down slow (after eight quiet bars), and each layer fades in
 // or out over two bars. Calls, sour notes and asks never wait for a tier: they play at once.
 const TIER_LAYERS = {
-  farshore: (t, busy) => ({ pulse: t >= 1 && busy, accent: t >= 1, tick: t >= 2 }),
-  // Busy never makes Deep field erupt (a state isn't a jump scare): the full tier only thickens the
-  // ostinato; the organ and the low drum come in on a commit, for four bars
-  deepfield: (t, busy, surge) => ({ ostinato: t >= 1, pedal: t >= 1, thicken: t >= 2, organ: surge, boom: surge }),
+  farshore: (t, busy) => ({ pulse: t >= 1 && busy, accent: t >= 1, arp: t >= 1, tick: t >= 2, brass: t >= 2 }),
+  // Deep field doesn't erupt on busy alone: the full tier thickens the ostinato, the organ and low drum
+  // come on a commit. Only a room flat out for a long while earns the drive (lib/dj.mjs, after
+  // "Synthetic God"): kick, sub, a sixteenth sequencer and a hat, at 4:3 the tempo.
+  deepfield: (t, busy, surge, drive) => (drive
+    ? { kick: true, sub: true, seq: true, hat: true, organ: surge, boom: surge }
+    : { ostinato: t >= 1, pedal: t >= 1, thicken: t >= 2, organ: surge, boom: surge }),
 };
 function updateTier(bar, En) {
   const busy = [...lanes.values()].some((l) => l.busy && !l.off);
@@ -779,7 +789,8 @@ function updateTier(bar, En) {
   if (target > S.tier && bar - S.tierAt >= 2) { S.tier += 1; S.tierAt = bar; S.tierLow = 0; E('tier', S.tier); }
   else if (target < S.tier) { if (++S.tierLow >= 8) { S.tier -= 1; S.tierAt = bar; S.tierLow = 0; E('tier', S.tier); } }
   else S.tierLow = 0;
-  const want = S.blend ? {} : (TIER_LAYERS[mood().style] || (() => ({})))(S.tier, busy, S.surgeUntil > bar);
+  // A DJ breakdown or the drive's lift and release: everything but the strings steps aside
+  const want = S.blend || S.lift ? {} : (TIER_LAYERS[mood().style] || (() => ({})))(S.tier, busy, S.surgeUntil > bar, S.driving);
   for (const k of new Set([...Object.keys(want), ...Object.keys(S.layers)])) S.layers[k] = clamp((S.layers[k] || 0) + (want[k] ? 0.5 : -0.5), 0, 1);
 }
 
@@ -792,12 +803,44 @@ const LAYER_FALLBACK = {
   pedal: (n, t, d, v) => E('bass', n[0], t, d, v),
   organ: (n, t, d, v) => E('pad', n, t, d, v * 0.6, false),
   boom: (n, t, d, v) => E('drum', 'tom', t, v, n[0]),
+  arp: (n, t, d, v) => E('voice', 'pluck', n[0], t, d, v * 0.6),
+  brass: (n, t, d, v) => E('pad', n, t, d, v * 0.5, false),
+  kick: (n, t, d, v) => E('drum', 'kick', t, v),
+  sub: (n, t, d, v) => E('bass', n[0], t, d, v),
+  seq: (n, t, d, v) => E('voice', 'mallet', n[0], t, d, v),
+  hat: (n, t, d, v) => E('drum', 'hat', t, v),
 };
 function layer(name, notes, time, dur, vel) {
   if (vel <= 0.001) return;
   if (S.engine && typeof S.engine.layer === 'function' && S.engine.layer(name, notes, time, dur, vel) !== false) return;
   const f = LAYER_FALLBACK[name];
   if (f) f(notes, time, dur, vel);
+}
+
+// ------------------------------------------------------------------ the drive (Deep field's drop)
+
+// lib/dj.mjs decides when; this plays it. The lift: two bars of strings and a riser. The drop: straight to
+// 4:3 the tempo (90 to 120, the tempo "Synthetic God" drops onto) with the drive's layers in at once. The
+// release: two bars of strings while the tempo glides back. A DJ change stops it where it is.
+const DRIVE_RATIO = 4 / 3;
+function driveBar(bar, time) {
+  const r = DJ.driveStep(S.drive, bar, bar - S.deck.since, S.tier, mood().style === 'deepfield' && !S.blend);
+  if (!r) return;
+  const m = mood();
+  const lift = Tone.Time('1m').toSeconds() * DJ.DRIVE.LIFT;
+  if (r === 'lift') { S.lift = true; layer('riser', [], time, lift, 0.5); }
+  if (r === 'drop') {
+    S.lift = false; S.driving = true;
+    S.audio.T.bpm.setValueAtTime(m.bpm * DRIVE_RATIO, time);
+    for (const k of ['ostinato', 'pedal', 'thicken']) S.layers[k] = 0;
+    for (const k of ['kick', 'sub', 'seq', 'hat']) S.layers[k] = 1;
+    vis.chords.push({ t: toVis(time), name: '', home: false, deck: 'drive · the room is flat out' });
+  }
+  if (r === 'release') { S.lift = true; S.audio.T.bpm.rampTo(m.bpm, lift, time); }
+  if (r === 'back' || r === 'stop') {
+    S.lift = false; S.driving = false;
+    if (r === 'back') S.audio.T.bpm.setValueAtTime(m.bpm, time);
+  }
 }
 
 // ------------------------------------------------------------------ Far shore
@@ -812,6 +855,17 @@ function farShore(sib, bar, time) {
   if (sib % 2 === 0 && L.pulse > 0 && bar % 4 !== 3) layer('pulse', [fold(m.tonic, 33, 40)], time, 0.2, (sib === 0 ? 0.62 : 0.5) * L.pulse);
   if (bar % 2 === 1 && sib === 14 && L.accent > 0) layer('accent', [fold(S.chord.root + 14, 64, 76)], time, 0.18, 0.3 * L.accent);
   if ((sib === 4 || sib === 12) && L.tick > 0) layer('tick', [], time, 0.035, 0.4 * L.tick);
+  // The arpeggio: eighths up and down the chord's own tones, a little above the pad
+  if (sib % 2 === 0 && L.arp > 0) {
+    const tones = [...new Set(QUALITY[S.chord.q].map((i) => fold(S.chord.root + i, 59, 74)))].sort((a, b) => a - b);
+    const walk = [0, 1, 2, 1, 3, 2, 1, 2];
+    layer('arp', [tones[Math.min(walk[sib / 2], tones.length - 1)]], time, 0.2, (sib % 8 === 0 ? 0.3 : 0.22) * L.arp);
+  }
+  // The brass swells under each chord change in the full tier: root, fifth and octave, low
+  if (sib === 0 && bar % 2 === 0 && L.brass > 0) {
+    const root = fold(S.chord.root, 45, 56);
+    layer('brass', [root, root + 7, root + 12], time, Tone.Time('1m').toSeconds() * 1.9, 0.35 * L.brass);
+  }
 }
 
 // ------------------------------------------------------------------ Deep field
@@ -844,6 +898,16 @@ function deepField(sib, bar, time) {
     }
     if (L.boom > 0 && bar % 2 === 0) layer('boom', [fold(m.tonic, 26, 37)], time, 1.2, 0.4 * L.boom);
   }
+  // The drive: the same figures, tight and twice as busy, over a kick and a sub that follow the chord
+  if (L.seq > 0) {
+    const voicing = [...new Set(QUALITY[c.q].map((i) => fold(c.root + i, 62, 79)))].sort((a, b) => a - b);
+    const fig = OSTINATI[Math.floor(bar / 4) % OSTINATI.length];
+    const sixteenth = Tone.Time('16n').toSeconds();
+    layer('seq', [voicing[Math.min(fig[sib % 8], voicing.length - 1)]], time, sixteenth * 0.8, (sib % 4 === 0 ? 0.32 : 0.22) * L.seq);
+  }
+  if (sib % 4 === 0 && L.kick > 0) layer('kick', [fold(m.tonic, 26, 37)], time, 0.2, (sib === 0 ? 0.75 : 0.62) * L.kick);
+  if (sib % 2 === 0 && L.sub > 0) layer('sub', [fold(c.root, 33, 45)], time, Tone.Time('8n').toSeconds() * 0.6, (sib % 4 === 0 ? 0.55 : 0.42) * L.sub);
+  if (sib % 4 === 2 && L.hat > 0) layer('hat', [], time, 0.04, 0.4 * L.hat);
 }
 
 // ------------------------------------------------------------------ house: the pump and the stabs
@@ -974,7 +1038,11 @@ function changeChord(time, landed) {
     S.chord = chordOf(m, m.home); S.landHome = false; home = true;
     if (m.style === 'deepfield') S.surgeUntil = Math.floor(S.step / 16) + 4; // the organ rises on a commit
   }
-  else { S.chordIdx = (S.chordIdx + 1) % m.prog.length; S.chord = chordOf(m, m.prog[S.chordIdx]); }
+  else {
+    S.chordIdx = (S.chordIdx + 1) % m.prog.length;
+    if (S.chordIdx === 0) S.pass = (S.pass || 0) + 1;
+    S.chord = chordOf(m, (m.alt && S.pass % 2 === 0 ? m.alt : m.prog)[S.chordIdx]);
+  }
   // A trio has no string pad: under jazz it's a soft bed, and the piano comps the chord
   E('pad', S.chord.pad, time, Tone.Time('2m').toSeconds() - 0.1, (home ? 0.6 : 0.45) * (m.style === 'jazz' ? 0.22 : 1), home);
   for (const ln of lanes.values()) ln.pool = poolFor(m, S.chord, ln.timbre);
@@ -1734,7 +1802,7 @@ function earState() {
   const r2 = (x) => Math.round(x * 100) / 100;
   return {
     engine: S.engineId, mood: S.moodKey, moodName: mood().name, key: mood().label, bpm: mood().bpm, chord: S.chord.name,
-    lead: S.leadNow, deck: { lead: S.deck.lead, since: S.deck.since, next: S.deck.next, takeover: S.deck.takeover, blend: !!S.blend }, tier: S.tier, texture: S.texture, volume: S.volume, capture: S.audio && S.audio.capture ? S.audio.capture.via : '', drumLevel: r2(S.drumLevel), energy: r2(energy()), sour: S.sourOn, waiting: total,
+    lead: S.leadNow, deck: { lead: S.deck.lead, since: S.deck.since, next: S.deck.next, takeover: S.deck.takeover, blend: !!S.blend }, tier: S.tier, drive: S.drive.phase, texture: S.texture, volume: S.volume, capture: S.audio && S.audio.capture ? S.audio.capture.via : '', drumLevel: r2(S.drumLevel), energy: r2(energy()), sour: S.sourOn, waiting: total,
     lanes: [...lanes.values()].filter((l) => !l.ended).map((l) => ({
       label: l.label, project: l.project, timbre: l.timbre, busy: l.busy, failing: Object.keys(l.failChecks), needs: l.needs, off: l.off, muted: l.muted, energy: r2(l.energy),
     })),
@@ -1800,6 +1868,8 @@ function stop() {
   // A change under way doesn't survive a stop: without this the tempo kept gliding to the next track's
   // and the track that was playing came back at it
   if (S.blend || S.deck.next) { S.blend = null; S.deck.next = null; syncTransport(); }
+  // ...and the drive ends with the music
+  if (S.driving || S.lift || S.drive.phase !== 'off') { S.drive = DJ.createDrive(); S.driving = false; S.lift = false; syncTransport(); }
   applyLevel();
   setTimeout(() => { if (!S.playing) S.audio.T.pause(); }, 450);
   setPlayUi();

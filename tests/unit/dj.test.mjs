@@ -233,3 +233,49 @@ test("a claim can't cut in on a takeover's hand-back (RV-004 F2)", () => {
   assert.equal(claim(deck, 'coter-kit', took.bar + TAKEOVER_BARS - 1, 2, moodOf), null)
   assert.equal(deck.next.reason, 'return')
 })
+
+// ------------------------------------------------------------------ drive
+import { createDrive, driveStep, DRIVE } from '../../lib/dj.mjs'
+
+function drive(d, from, to, tier, on = true) {
+  const out = []
+  for (let bar = from; bar < to; bar++) { const r = driveStep(d, bar, bar, typeof tier === 'function' ? tier(bar) : tier, on); if (r) out.push([bar, r]) }
+  return out
+}
+
+test('the drop is earned: a long stretch at full, a lift, then in on a phrase line', () => {
+  const d = createDrive()
+  assert.deepEqual(drive(d, 0, DRIVE.AFTER - 1, 2), [], 'not before AFTER bars at full')
+  const got = drive(d, DRIVE.AFTER - 1, DRIVE.AFTER + 20, 2)
+  const lift = got.find(([, r]) => r === 'lift'), drop = got.find(([, r]) => r === 'drop')
+  assert.ok(lift && drop)
+  assert.equal(drop[0] - lift[0], DRIVE.LIFT)
+  assert.equal(drop[0] % DRIVE.PHRASE, 0)
+  assert.equal(d.phase, 'on')
+})
+
+test('a room that calms down leaves the drive on a phrase line, and it rests before the next', () => {
+  const d = createDrive()
+  drive(d, 0, 48, 2)
+  assert.equal(d.phase, 'on')
+  const got = drive(d, 48, 80, 1)
+  const release = got.find(([, r]) => r === 'release'), back = got.find(([, r]) => r === 'back')
+  assert.ok(release && back)
+  assert.equal(back[0] % DRIVE.PHRASE, 0)
+  assert.deepEqual(drive(d, 80, back[0] + DRIVE.REST - 1, 2).filter(([, r]) => r === 'lift'), [], 'rests REST bars first')
+})
+
+test('the drive lasts MAX bars at most, even flat out', () => {
+  const d = createDrive()
+  const got = drive(d, 0, 200, 2)
+  const drop = got.find(([, r]) => r === 'drop'), back = got.find(([, r]) => r === 'back')
+  assert.ok(back[0] - drop[0] <= DRIVE.MAX + DRIVE.PHRASE)
+})
+
+test("a DJ change stops the drive where it is, and a short spike doesn't count", () => {
+  const d = createDrive()
+  drive(d, 0, 48, 2)
+  assert.deepEqual(drive(d, 48, 49, 2, false), [[48, 'stop']])
+  assert.equal(d.phase, 'off')
+  assert.deepEqual(drive(d, 49, 49 + 40, (bar) => (bar % 20 === 0 ? 1 : 2)), [], 'a dip resets the count')
+})
