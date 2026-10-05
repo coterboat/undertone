@@ -7,10 +7,10 @@ const moodOf = (p) => MOOD[p] || 'lofi'
 const { HOLD_BARS, PHRASE, BLEND_BARS, CHALLENGE_BARS, TAKEOVER_BARS } = DEFAULTS
 
 // Runs bars from..to-1 with the same scores, collecting every change that lands
-function run(deck, from, to, scores, pinned = null) {
+function run(deck, from, to, scores, pinned = null, isOn) {
   const landed = []
   for (let bar = from; bar < to; bar++) {
-    const r = onBar(deck, bar, { scores: typeof scores === 'function' ? scores(bar) : scores, pinned, moodOf })
+    const r = onBar(deck, bar, { scores: typeof scores === 'function' ? scores(bar) : scores, pinned, moodOf, isOn })
     if (r.landed) landed.push({ bar, ...r.landed })
   }
   return landed
@@ -173,4 +173,28 @@ test('your choices beat a takeover (RV-002 F2)', () => {
   assert.equal(after[0].project, 'coter-kit')
   assert.equal(after[0].reason, 'you')
   assert.ok(after[0].bar - pinAt <= BLEND_BARS + 2, 'lands within a few bars, not at the end of the takeover')
+})
+
+test("turning off the project playing: the next one to work takes the deck at once (RV-003 F2)", () => {
+  const deck = createDeck('undertone', 'farshore', 0)
+  const isOn = (p) => p !== 'undertone'
+  deck.asked = true
+  assert.deepEqual(run(deck, 0, 10, {}, null, isOn), [], 'nobody working: the music stays put')
+  const landed = run(deck, 10, 18, { jobsnearme: 0.4 }, null, isOn)
+  assert.equal(landed.length, 1)
+  assert.equal(landed[0].project, 'jobsnearme')
+  assert.ok(landed[0].bar <= 14, 'within a few bars, not after a 32-bar challenge')
+})
+
+test("your choice wins a race with a takeover about to land (RV-003 F4)", () => {
+  const deck = createDeck('undertone', 'farshore', 0)
+  run(deck, 0, 40, { undertone: 0.8 })
+  claim(deck, 'jobsnearme', 40, 1, moodOf)
+  const at = deck.next.at
+  run(deck, 41, at, { undertone: 0.8 })
+  deck.asked = true // you turned jobsnearme off just before it landed
+  const landed = run(deck, at, at + 1, { undertone: 0.8 })
+  assert.deepEqual(landed, [])
+  assert.equal(deck.on, 'undertone')
+  assert.equal(deck.takeover, null)
 })

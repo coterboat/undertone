@@ -497,6 +497,7 @@ const S = {
   deck: DJ.createDeck(),
   blend: null,          // the breakdown before a change: { to, pivot, at }
   scores: {},           // how busy each project is, for the lead
+  surgeAsked: false,    // a surge waiting for the next bar
   chordIdx: -1,
   chord: null,
   landHome: false,
@@ -671,7 +672,7 @@ function tick(time) {
     const landed = djBar(bar, time);
     if ((bar - S.deck.since) % 2 === 0) changeChord(time, landed);
     const busy = [...lanes.values()].some((l) => l.busy && !l.off);
-    const want = S.drumsOn && !S.blend && (busy || En > 0.35) ? 1 : 0;
+    const want = S.drumsOn && !S.blend && (busy || En > 0.35 || S.surgeUntil > bar) ? 1 : 0;
     S.drumLevel = clamp(S.drumLevel + (want - S.drumLevel) * (S.blend ? 0.6 : 0.35), 0, 1);
     E('energy', En, time, mood().padHz);
     askTick(bar, time);
@@ -1343,7 +1344,7 @@ function ingest(e, source) {
 function deckClaim(ln) {
   if (!S.playing || !S.audio) return;
   const bar = Math.floor(S.step / 16);
-  if (DJ.claim(S.deck, ln.project, bar, Date.now(), moodOfProject) === 'surge') S.surgeUntil = Math.max(S.surgeUntil, bar + S.deck.o.SURGE_BARS);
+  if (DJ.claim(S.deck, ln.project, bar, Date.now(), moodOfProject) === 'surge') S.surgeAsked = true;
 }
 
 function energy() {
@@ -1396,9 +1397,16 @@ function showLead() {
 // out: drums and the style's layers drop away, the pad holds the pivot chord, the tempo glides)
 function djBar(bar, time) {
   const d = S.deck;
-  const r = DJ.onBar(d, bar, { scores: S.scores, pinned: pinnedLead(), moodOf: moodOfProject });
+  const r = DJ.onBar(d, bar, { scores: S.scores, pinned: pinnedLead(), moodOf: moodOfProject, isOn: (p) => !P.list.has(p) || P.list.get(p).on });
   let landed = null;
   if (r.landed) landed = land(r.landed, bar, time);
+  // A breakdown whose change was called off (you beat a takeover to it) gives the music back
+  if (S.blend && !(d.next && d.next.at === S.blend.at)) {
+    S.blend = null;
+    S.audio.T.bpm.rampTo(mood().bpm, Tone.Time('1m').toSeconds(), time);
+  }
+  // A surge (a push from the project playing) comes in at full on the bar after it
+  if (S.surgeAsked) { S.surgeAsked = false; fullNow(bar, d.o.SURGE_BARS); }
   const n = d.next;
   if (n && n.blend && !S.blend && bar === n.at - d.o.BLEND_BARS && MOODS[n.mood]) {
     const to = MOODS[n.mood];
@@ -1415,17 +1423,22 @@ function land(n, bar, time) {
   if (n.reason !== 'takeover' && n.project !== S.leadNow) S.surgeUntil = Math.min(S.surgeUntil, bar);
   S.leadNow = n.project;
   if (n.mood !== S.moodKey && MOODS[n.mood]) applyMood(n.mood, time);
-  if (n.reason === 'takeover') {
-    // It earned it: the takeover comes in at full, straight away
-    S.surgeUntil = bar + S.deck.o.TAKEOVER_BARS;
-    S.tier = 2; S.tierAt = bar; S.tierLow = 0;
-    for (const [k, on] of Object.entries((TIER_LAYERS[mood().style] || (() => ({})))(2, true, true))) if (on) S.layers[k] = 1;
-    S.drumLevel = S.drumsOn ? 1 : 0;
-    E('tier', 2);
-  }
+  if (n.reason === 'takeover') fullNow(bar, S.deck.o.TAKEOVER_BARS); // it earned it: in at full, straight away
+
   announce(n.project, time);
   Tone.getDraw().schedule(showLead, time);
   return n;
+}
+
+// The full arrangement from this bar, for `bars` bars whatever the room is doing: a takeover, a surge
+function fullNow(bar, bars) {
+  S.surgeUntil = Math.max(S.surgeUntil, bar + bars);
+  S.tier = 2; S.tierAt = bar; S.tierLow = 0;
+  // Only what the full tier plays for the room as it is: Far shore's pulse still means a turn is running
+  const busy = [...lanes.values()].some((l) => l.busy && !l.off);
+  for (const [k, on] of Object.entries((TIER_LAYERS[mood().style] || (() => ({})))(2, busy, true))) if (on) S.layers[k] = 1;
+  S.drumLevel = S.drumsOn ? 1 : 0;
+  E('tier', 2);
 }
 
 // Whoever takes the deck says so: its busiest session plays the first two notes of its own call on the

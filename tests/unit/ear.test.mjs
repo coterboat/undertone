@@ -49,3 +49,13 @@ test('a glitch repeating every audio block is clicks, not a tone (RV-002 F4)', (
   for (let i = 0; i < x.length; i++) x[i] += 0.06 * ((i % 128) / 128)
   assert.ok(clicksIn(x) > 100)
 })
+
+test('a glitch landing right on a tone edge still counts (RV-003 F3)', () => {
+  const x = pulseNote(2, 165, 0.5)
+  // The biggest edge of the note, and a DC step on that same sample, a little smaller than the edge
+  let edge = 1
+  for (let i = 1; i < x.length; i++) if (Math.abs(x[i] - x[i - 1]) > Math.abs(x[edge] - x[edge - 1])) edge = i
+  const size = x[edge] - x[edge - 1]
+  for (let i = edge; i < x.length; i++) x[i] += 0.6 * size
+  assert.equal(clicksIn(x), 1)
+})

@@ -145,13 +145,16 @@ export function pitchEdge(mono, i, sampleRate) {
     return best
   }
   const lo = Math.round(sampleRate * 0.0015), hi = Math.round(sampleRate * 0.025)
+  // The nearest cycle's edge must also account for all but a click's worth of this step: a glitch that
+  // lands right on an edge makes the step bigger than its neighbours by the glitch (Codex RV-003 F3)
+  const near = Math.max(need, Math.abs(s) - 0.03)
   for (let p = lo; p <= hi; p++) {
     // A step that repeats every audio block (128 samples) or a multiple is a buffer glitch, not a pitch
     // (Codex RV-002 F4). A note whose period lands there is counted as clicks: the safe side to err on.
     if (p % 128 <= 1 || p % 128 >= 127) continue
     let run = 0
-    for (let k = 1; k <= 3 && stepAt(i + k * p) >= need; k++) run++
-    for (let k = 1; k <= 3 && stepAt(i - k * p) >= need; k++) run++
+    for (let k = 1; k <= 3 && stepAt(i + k * p) >= (k === 1 ? near : need); k++) run++
+    for (let k = 1; k <= 3 && stepAt(i - k * p) >= (k === 1 ? near : need); k++) run++
     if (run >= 3) return true
   }
   return false
