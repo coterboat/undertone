@@ -4,6 +4,7 @@
 import { test, after } from 'node:test'
 import assert from 'node:assert/strict'
 import net from 'node:net'
+import crypto from 'node:crypto'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -64,6 +65,41 @@ test('the bridge starts sources when sources.json describes one, restarts them w
   fs.writeFileSync(config, JSON.stringify({ after: {} }))
   await sleep(300)
   assert.equal(sup.status().running, false, 'nothing starts after stop')
+})
+
+// Every threadpool thread held for a moment, as a loaded machine can: fs.watchFile's first look ran
+// there, so a sources.json written before it landed became its baseline and was never seen
+const holdThreadpool = () => Promise.all(Array.from({ length: Number(process.env.UV_THREADPOOL_SIZE) || 4 }, () =>
+  new Promise((r) => crypto.pbkdf2('undertone', 'salt', 200_000, 64, 'sha512', r))))
+
+test('a sources.json written or changed just as the bridge starts watching is not missed, however busy the machine', async () => {
+  const dir = tmp()
+  const script = path.join(dir, 'fake.mjs')
+  fs.writeFileSync(script, "process.stdin.on('end', () => process.exit(0)); process.stdin.resume()")
+  const opts = { script, port: 4999, log: () => {}, watchMs: 50, againMs: 50, quickMs: 100, steadyMs: 60_000 }
+
+  // Written for the first time
+  const created = path.join(dir, 'created.json')
+  let held = holdThreadpool()
+  const a = superviseSources({ ...opts, config: created })
+  cleanup.push(() => a.stop())
+  fs.writeFileSync(created, JSON.stringify({ ourplace: { metrics: [] } }))
+  await held
+  await until(() => a.status().pid, 2000)
+  await a.stop()
+
+  // Changed after the bridge read it: the source restarts on the new one
+  const changed = path.join(dir, 'changed.json')
+  fs.writeFileSync(changed, JSON.stringify({ ourplace: { metrics: [] } }))
+  held = holdThreadpool()
+  const b = superviseSources({ ...opts, config: changed })
+  cleanup.push(() => b.stop())
+  const first = b.status().pid
+  assert.ok(first)
+  fs.writeFileSync(changed, JSON.stringify({ ourplace: { label: 'changed', metrics: [] } }))
+  await held
+  await until(() => { const p = b.status().pid; return p && p !== first && p }, 2000)
+  await b.stop()
 })
 
 test('the real source holds a lock, a second copy steps aside, and a bridge-run copy quits when its pipe closes', async () => {

@@ -65,18 +65,25 @@ export function superviseSources({
     proc.stdin.end()
   })
 
-  // A changed file restarts them (a new source, a new metric); an emptied or deleted one stops them
-  const onChange = (cur, prev) => {
+  // A changed file restarts them (a new source, a new metric); an emptied or deleted one stops them.
+  // Polled here rather than with fs.watchFile: its first look runs later on the threadpool, and a
+  // file written before that lands (a busy machine, the bridge starting) became its baseline and was
+  // never reported. This baseline is taken before start() reads the file, so it is never newer.
+  const look = () => { try { const s = fs.statSync(config); return { mtimeMs: s.mtimeMs, size: s.size } } catch { return { mtimeMs: 0, size: 0 } } }
+  let seen = look()
+  const poll = setInterval(() => {
+    const cur = look()
+    const prev = seen
     if (cur.mtimeMs === prev.mtimeMs && cur.size === prev.size) return
+    seen = cur
     st.backoff = quickMs
     halt().then(() => { if (describesSources(config)) { if (prev.mtimeMs) st.restarts++; start() } })
-  }
-  fs.watchFile(config, { interval: watchMs }, onChange)
+  }, watchMs)
   start()
 
   return {
     status: () => ({ configured: describesSources(config), running: !!st.proc, pid: st.proc?.pid ?? null, restarts: st.restarts, last: st.last }),
-    stop: () => { st.stopped = true; clearTimeout(st.timer); fs.unwatchFile(config, onChange); return halt() },
-    kill: () => { st.stopped = true; if (st.proc) st.proc.kill() },
+    stop: () => { st.stopped = true; clearTimeout(st.timer); clearInterval(poll); return halt() },
+    kill: () => { st.stopped = true; clearInterval(poll); if (st.proc) st.proc.kill() },
   }
 }
