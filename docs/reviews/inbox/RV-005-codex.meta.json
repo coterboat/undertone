@@ -1,0 +1,12 @@
+{
+  "round": "RV-005",
+  "reviewer": "codex",
+  "rubric_sha256": "c2303a6dd22f05fd48a8fa98def28e45ed0a79fb2606afa367c2e8f42eba0154",
+  "packet_sha256": "9d3858d62298dafb22721d597d219c07ce6fc8e92294e489e58f6d175826313e",
+  "prompt_sha256": "7bc318fe82e2202335ea553cddcc6fa74c2006a1c44322ebc5298ca8684c135d",
+  "response_sha256": "3668ada9698a9daec40b52791a8ca97ae69a85b94456e5496fb4a8498f41d13c",
+  "started_at": "2026-10-05T02:27:58.315Z",
+  "duration_ms": 155741,
+  "canary": "CANARY: I can see environment and tool context beyond the packet, although I reviewed only the supplied diff.",
+  "packet_only": false
+}

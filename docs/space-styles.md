@@ -211,8 +211,10 @@ pedal, then thickening). New: when the room holds the full tier for 32 bars, a 2
 soft riser, everything else out), then on a phrase line the drop: 90 to 120, "Synthetic God"'s own drive
 tempo, with a kick on the beat, a tight saw sub on the eighths following the chord, the ostinato as a
 square sequencer in sixteenths, and an off-beat hat. It lasts while the room stays full, 64 bars at most,
-breaks down back to 90 in 2 bars, and rests 64 bars. Replayed over the 10-3 and 10-4 logs (the full tier is
-20-26% of a day): 2.7-3.7 drops an hour, 6-8% of the day in drive. The drop is +3 dB, not +10: it's still
+breaks down back to 90 in 2 bars, and rests 64 bars. It listens to the room as it is, not the slower tier:
+a lift is called off if the room drops, and a room that calms releases it on the next two-bar line (Codex
+RV-005). Replayed over the 10-3 and 10-4 logs (the full tier is 20-26% of a day): 1.6-1.8 drops an hour,
+3-4% of bars in drive. The drop is +3 dB, not +10: it's still
 background. It says "the room has been flat out for over a minute"; Stellaris's crisis loop is why it
 ends on its own.
 
@@ -223,8 +225,10 @@ saws whose filter opens as they grow), a pad whose filter breathes over ~24 s, a
 through the progression on richer voicings of the same chords (Em(add9), Dadd9, Cmaj7#11, Bsus4: the
 raised fourth is ME1's wonder). +2 dB at the full tier.
 
-Verified on a scratch bridge, Sampled and Synth: lift, drop, cap and release on the planned bars, 0
-clicks on every clip.
+Verified on a scratch bridge, Sampled and Synth: lift, drop, cap and release on the planned bars, a calm
+room releasing it within two bars, 0 clicks on every clip. Codex (RV-005): 5 findings, 3 confirmed and
+fixed, 2 partly (the tempo half of "stuck at 120" didn't hold: a DJ breakdown always glides it; engines
+without the space kits play the lift as strings, with no riser).
 
 ## DJ: transitions and takeovers (0.12.0)
 

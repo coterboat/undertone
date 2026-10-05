@@ -809,6 +809,7 @@ const LAYER_FALLBACK = {
   sub: (n, t, d, v) => E('bass', n[0], t, d, v),
   seq: (n, t, d, v) => E('voice', 'mallet', n[0], t, d, v),
   hat: (n, t, d, v) => E('drum', 'hat', t, v),
+  // riser: none. An engine without the space kits has no noise to sweep; its lift is the strings alone
 };
 function layer(name, notes, time, dur, vel) {
   if (vel <= 0.001) return;
@@ -824,7 +825,8 @@ function layer(name, notes, time, dur, vel) {
 // release: two bars of strings while the tempo glides back. A DJ change stops it where it is.
 const DRIVE_RATIO = 4 / 3;
 function driveBar(bar, time) {
-  const r = DJ.driveStep(S.drive, bar, bar - S.deck.since, S.tier, mood().style === 'deepfield' && !S.blend);
+  // The room as it is: a tier still stepping down from full counts as not full
+  const r = DJ.driveStep(S.drive, bar, bar - S.deck.since, S.tierLow ? Math.min(S.tier, 1) : S.tier, mood().style === 'deepfield' && !S.blend);
   if (!r) return;
   const m = mood();
   const lift = Tone.Time('1m').toSeconds() * DJ.DRIVE.LIFT;
@@ -837,9 +839,12 @@ function driveBar(bar, time) {
     vis.chords.push({ t: toVis(time), name: '', home: false, deck: 'drive · the room is flat out' });
   }
   if (r === 'release') { S.lift = true; S.audio.T.bpm.rampTo(m.bpm, lift, time); }
+  if (r === 'cancel') S.lift = false;
   if (r === 'back' || r === 'stop') {
     S.lift = false; S.driving = false;
     if (r === 'back') S.audio.T.bpm.setValueAtTime(m.bpm, time);
+    // A DJ change cuts the drive's drums at once; its breakdown glides the tempo (RV-005 F1)
+    if (r === 'stop') for (const k of ['kick', 'sub', 'seq', 'hat']) S.layers[k] = 0;
   }
 }
 

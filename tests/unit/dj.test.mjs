@@ -254,14 +254,14 @@ test('the drop is earned: a long stretch at full, a lift, then in on a phrase li
   assert.equal(d.phase, 'on')
 })
 
-test('a room that calms down leaves the drive on a phrase line, and it rests before the next', () => {
+test('a room that calms down leaves the drive on a two-bar line, and it rests before the next', () => {
   const d = createDrive()
   drive(d, 0, 48, 2)
   assert.equal(d.phase, 'on')
   const got = drive(d, 48, 80, 1)
   const release = got.find(([, r]) => r === 'release'), back = got.find(([, r]) => r === 'back')
   assert.ok(release && back)
-  assert.equal(back[0] % DRIVE.PHRASE, 0)
+  assert.equal(back[0] % 2, 0)
   assert.deepEqual(drive(d, 80, back[0] + DRIVE.REST - 1, 2).filter(([, r]) => r === 'lift'), [], 'rests REST bars first')
 })
 
@@ -269,7 +269,31 @@ test('the drive lasts MAX bars at most, even flat out', () => {
   const d = createDrive()
   const got = drive(d, 0, 200, 2)
   const drop = got.find(([, r]) => r === 'drop'), back = got.find(([, r]) => r === 'back')
-  assert.ok(back[0] - drop[0] <= DRIVE.MAX + DRIVE.PHRASE)
+  assert.equal(back[0] - drop[0], DRIVE.MAX) // RV-005 F5: exactly MAX, release included
+})
+
+test("a room that drops during the lift calls the drop off; one that drops during the drive releases on the next two-bar line (RV-005 F2)", () => {
+  let d = createDrive()
+  let lift = null
+  for (let bar = 0; lift === null; bar++) if (driveStep(d, bar, bar, 2, true) === 'lift') lift = bar
+  assert.equal(d.phase, 'lift')
+  assert.deepEqual(drive(d, lift + 1, lift + 2, 1), [[lift + 1, 'cancel']])
+  assert.equal(d.phase, 'off')
+  d = createDrive()
+  drive(d, 0, 48, 2)
+  assert.equal(d.phase, 'on')
+  const got = drive(d, 49, 60, 1)
+  assert.equal(got[0][1], 'release')
+  assert.ok(got[0][0] <= 50, 'within two bars, not at the phrase line')
+})
+
+test("a DJ change after the drop still earns the rest (RV-005 F3)", () => {
+  const d = createDrive()
+  drive(d, 0, 48, 2)
+  assert.equal(d.phase, 'on')
+  drive(d, 48, 49, 2, false)
+  assert.ok(d.restUntil >= 48 + DRIVE.REST)
+  assert.deepEqual(drive(d, 49, 48 + DRIVE.REST, 2).filter(([, r]) => r === 'lift'), [])
 })
 
 test("a DJ change stops the drive where it is, and a short spike doesn't count", () => {
