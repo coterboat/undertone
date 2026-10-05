@@ -198,3 +198,38 @@ test("your choice wins a race with a takeover about to land (RV-003 F4)", () => 
   assert.equal(deck.on, 'undertone')
   assert.equal(deck.takeover, null)
 })
+
+test("your choice during a lead change's breakdown: the stale change doesn't land (RV-004 F1)", () => {
+  const deck = createDeck('undertone', 'farshore', 0)
+  deck.lead = 'jobsnearme'
+  run(deck, 1, HOLD_BARS - 2, { jobsnearme: 0.9 })
+  assert.equal(deck.next.project, 'jobsnearme')
+  const at = deck.next.at
+  run(deck, HOLD_BARS - 2, at - 1, { jobsnearme: 0.9 }) // into the breakdown
+  deck.asked = true // you pinned coter-kit
+  const landed = run(deck, at - 1, at + 6, { jobsnearme: 0.9 }, 'coter-kit')
+  assert.equal(landed.length, 1)
+  assert.equal(landed[0].project, 'coter-kit')
+})
+
+test("a change to a project you turned off is dropped, and a lead that's off with nobody else stays quiet (RV-004 F1)", () => {
+  const deck = createDeck('undertone', 'farshore', 0)
+  deck.lead = 'jobsnearme'
+  run(deck, 1, HOLD_BARS - 2, { jobsnearme: 0.9 })
+  assert.equal(deck.next.project, 'jobsnearme')
+  const isOn = (p) => p !== 'jobsnearme'
+  assert.deepEqual(run(deck, HOLD_BARS - 2, HOLD_BARS + 20, {}, null, isOn), [])
+  assert.equal(deck.on, 'undertone')
+  assert.equal(deck.next, null)
+})
+
+test("a claim can't cut in on a takeover's hand-back (RV-004 F2)", () => {
+  const deck = createDeck('undertone', 'farshore', 0)
+  run(deck, 0, 40, { undertone: 0.8 })
+  claim(deck, 'jobsnearme', 40, 1, moodOf)
+  const took = run(deck, 41, 50, { undertone: 0.8 })[0]
+  run(deck, 50, took.bar + TAKEOVER_BARS, { undertone: 0.8 }) // through the takeover's last full bar
+  assert.equal(deck.next && deck.next.reason, 'return')
+  assert.equal(claim(deck, 'coter-kit', took.bar + TAKEOVER_BARS - 1, 2, moodOf), null)
+  assert.equal(deck.next.reason, 'return')
+})

@@ -208,16 +208,19 @@ ascendant trading the lead. That's a radio, and a change that carries no informa
 | Landing | the track's own phrase boundaries (every 8 bars from where it started) | changes land where the music expects them |
 | Blend | 2 bars of breakdown: drums and the style's layers out, the pad on a pivot chord, the tempo gliding | the pivot is the incoming chord that sits best in the outgoing key (Far shore to Deep field goes through C add9; Deep field to Daylight through A9sus4) |
 | Announce | the new lead's busiest session plays the first two notes of its call on the downbeat | who's driving, by ear (Codex and Grok: by register and interval, not by instrument) |
-| Takeover | a push or a green CI run from another project: its music at full for 16 bars, landing on a 4-bar line, then back to the lead | earned, and short |
-| Surge | the same from the project playing: the full tier for 8 bars | |
+| Takeover | a push or a green CI run from another project: its music at full for 16 bars, landing on a 4-bar line, then a breakdown back to the lead | earned, and short |
+| Surge | the same from the project playing: the full tier from the next bar for 8 bars, drums too | Far shore's pulse still plays only while a turn runs |
 | Cooldown | one claim per project per 30 minutes | ascendant pushed 73 times on 10-4 |
-| Yours | a lead you set, a mood you pick, a project you turn off: the next even bar after the blend | your choices don't wait out the hold |
+| Yours | a lead you set, a mood you pick, a project you turn off: the next even bar after the blend | your choices don't wait out the hold, and beat a takeover or a change already under way (its breakdown gives the music back) |
 
 Result on the same two days: 2.2 and 2.4 changes an hour, 7 and 11 takeovers a day, nothing under 16
-bars. Scheduled runs no longer lead (outside sources never did). Verified on a scratch bridge with
-both Synth and Sampled: lead change, takeover and return, and a mood you pick, each landing on the bar
-the deck planned; 0 clicks, loudness within 2 dB through a takeover, a 4-5 dB dip for the two-bar
-breakdown.
+bars. Scheduled runs no longer lead (outside sources never did). A stop during a breakdown drops the
+change and puts the tempo back. Verified on a scratch bridge with both Synth and Sampled: lead change,
+takeover and return, a surge, a mood you pick and a takeover you call off, each on the bar the deck
+planned; 0 clicks, loudness within 2 dB through a takeover, a 4-5 dB dip for the two-bar breakdown.
+Codex reviewed it over three rounds (`docs/reviews/`, RV-002 to RV-004): 11 findings, 9 confirmed
+and fixed with a test each, 1 partly (turning off the project playing keeps its mood while nobody else
+works), 1 rejected; the arc closed with no high.
 
 **Not done.** Tempo ratios (82/123/164) weren't needed: the glide happens while the drums are out. A
 real crossfade of two styles playing at once would need the engines to run two kits side by side; the
