@@ -354,7 +354,7 @@ tr.attn td:first-child { color: var(--call); }
           <tr class="attn"><td>Needs your OK</td><td>a permission prompt; an idle session</td><td>That session's call, ending on a rising note. A permission prompt asks again softly every minute (three times at most) until you answer; an idle session asks once.</td></tr>
           <tr class="attn"><td>Your move</td><td>Claude finishes a turn</td><td>That session's call, settling on the chord's root. Each session has its own three-note call, so you learn who's talking.</td></tr>
           <tr class="attn"><td>Waiting on you</td><td>coter-kit waiting notes, every project</td><td>A soft bell figure that rises and stays open, like a question, every so often: more often and longer the more there are. A new one asks at once; an answer settles.</td></tr>
-          <tr class="attn"><td>Something breaks</td><td>a failing test, typecheck, lint or build; coter-kit checks blocking a stop; production errors</td><td>The session's call with its last note flat, then a sour note held over every chord. Each kind has its own: tests a tritone, typecheck a high grinding second, lint a softer seventh, build a low second, production errors a low rumble. The score names it.</td></tr>
+          <tr class="attn"><td>Something breaks</td><td>a failing test, typecheck, lint or build; coter-kit checks blocking a stop; production errors</td><td>The session's call with its last note flat, then a sour note held for 8 bars and restated briefly every 16 while it stays broken (held again if a different check breaks; a muted lane drops out). Each kind has its own: tests a tritone, typecheck a high grinding second, lint a softer seventh, build a low second, production errors a low rumble. The score names it.</td></tr>
           <tr><td>It's fixed</td><td>the same check passes (a different check passing doesn't count)</td><td>The session's call, settled, and the sour note slides into the chord.</td></tr>
           <tr><td>Commit or push</td><td><code>git commit</code>, <code>git push</code> in Bash</td><td>The progression resolves to the home chord, with bells in that session's lane. A commit and push in one go count once.</td></tr>
           <tr><td>Another project takes the lead</td><td>it out-works the one playing for over a minute</td><td>Two bars of breakdown (drums and pulse drop out, the pad holds a chord both keys share, the tempo glides), then its music, on the start of a phrase, and its busiest session plays the first two notes of its call. A track plays at least 32 bars. The score names the change.</td></tr>
@@ -517,6 +517,9 @@ const S = {
   volume: typeof saved.volume === 'number' ? saved.volume : 0,
   sourOn: false,
   sourMidi: 0,
+  sourHeld: false,      // the sour note held: for SOUR_HOLD bars after a failure, then restated now and then
+  sourHoldUntil: 0,
+  sourNext: 0,
   sourCheck: 'build',   // the newest failure's check: it picks the sour note's interval and register
   waitBrain: {},        // project -> open questions, from coter-kit's brain (live)
   waitLocal: {},        // project -> open questions from the jam deck and the demo
@@ -620,7 +623,7 @@ async function startEngine(id) {
   E('style', mood().style || 'lofi');
   E('tier', S.tier);
   E('energy', energy(), now, mood().padHz);
-  if (S.sourOn) E('sour', 'on', S.sourMidi, now);
+  if (S.sourOn && S.sourHeld) E('sour', 'on', S.sourMidi, now);
   // A pad right away, so a switch is heard at once instead of at the next chord
   if (S.playing) {
     E('pad', S.chord.pad, now, Tone.Time('2m').toSeconds(), 0.45, false);
@@ -682,6 +685,7 @@ function tick(time) {
     S.drumLevel = clamp(S.drumLevel + (want - S.drumLevel) * (S.blend ? 0.6 : 0.35), 0, 1);
     E('energy', En, time, mood().padHz);
     askTick(bar, time);
+    sourTick(bar, time);
     driveBar(bar, time);
     updateTier(bar, En);
   }
@@ -1051,7 +1055,7 @@ function changeChord(time, landed) {
   // A trio has no string pad: under jazz it's a soft bed, and the piano comps the chord
   E('pad', S.chord.pad, time, Tone.Time('2m').toSeconds() - 0.1, (home ? 0.6 : 0.45) * (m.style === 'jazz' ? 0.22 : 1), home);
   for (const ln of lanes.values()) ln.pool = poolFor(m, S.chord, ln.timbre);
-  if (S.sourOn) { S.sourMidi = sourMidi(); E('sour', 'move', S.sourMidi, time); }
+  if (S.sourOn) { S.sourMidi = sourMidi(); if (S.sourHeld) E('sour', 'move', S.sourMidi, time); }
   const name = S.chord.name;
   vis.chords.push({ t: toVis(time), name, home, deck: landed ? deckLabel(landed) : '' });
   Tone.getDraw().schedule(() => { qs('#chord').textContent = name; }, time);
@@ -1134,31 +1138,64 @@ const sourMidi = () => L.sourFor(S.sourCheck, S.chord.root);
 function newestFailure() {
   let newest = null;
   for (const l of lanes.values()) {
-    if (l.off || l.ended) continue;
+    if (l.off || l.ended || l.muted) continue; // a lane you muted keeps its failure on the score, not in your ears
     for (const span of Object.values(l.failChecks)) if (!newest || span.start > newest.start) newest = span;
   }
   return newest;
 }
 
-function updateSour() {
+// A failure is held for SOUR_HOLD bars, then lets go: a red deploy held a tone for hours (10-4, Alex:
+// "infinite"), and the rule is no constant tones as status. While it's still failing, one short
+// restatement every SOUR_EVERY bars; held again only when a different check breaks (a CI that fails on
+// every push would otherwise hold forever again). The score shows it the whole time.
+const SOUR_HOLD = 8, SOUR_EVERY = 16;
+function holdSour() {
+  const bar = Math.floor(S.step / 16);
+  S.sourHeld = true;
+  S.sourHoldUntil = bar + SOUR_HOLD;
+  S.sourNext = S.sourHoldUntil + SOUR_EVERY;
+}
+function sourTick(bar, time) {
+  if (!S.sourOn) return;
+  if (S.sourHeld && bar >= S.sourHoldUntil) { S.sourHeld = false; E('sour', 'off', S.sourMidi, time, S.sourMidi); }
+  else if (!S.sourHeld && bar >= S.sourNext) {
+    S.sourNext = bar + SOUR_EVERY;
+    S.sourMidi = sourMidi();
+    E('sour', 'on', S.sourMidi, time);
+    E('sour', 'off', S.sourMidi, time + Tone.Time('1m').toSeconds(), S.sourMidi);
+  }
+}
+
+// quietly: the failure left because you muted or switched its lane off, not because it passed: no "fixed"
+function updateSour(quietly = false) {
   const newest = newestFailure();
-  if (!S.audio) { S.sourOn = !!newest; if (newest) S.sourCheck = newest.check; return; }
+  if (!S.audio) { S.sourOn = !!newest; if (newest) { S.sourCheck = newest.check; holdSour(); } return; }
   const now = Tone.now() + 0.05;
   if (newest && !S.sourOn) {
     S.sourOn = true;
     S.sourCheck = newest.check;
     S.sourMidi = sourMidi();
     E('sour', 'on', S.sourMidi, now);
+    holdSour();
   } else if (newest && newest.check !== S.sourCheck) {
     S.sourCheck = newest.check;
     S.sourMidi = sourMidi();
-    E('sour', 'move', S.sourMidi, now);
+    E('sour', S.sourHeld ? 'move' : 'on', S.sourMidi, now);
+    holdSour();
+  } else if (!newest && S.sourOn && quietly) {
+    S.sourOn = false;
+    if (S.sourHeld) E('sour', 'off', S.sourMidi, now, S.sourMidi);
+    S.sourHeld = false;
   } else if (!newest && S.sourOn) {
     S.sourOn = false;
-    // Slide into the nearest chord tone above, then let it ring out with a bell
+    // Slide into the nearest chord tone above, then let it ring out with a bell (a sour note that had
+    // already let go swells back in briefly first, so the fix is still heard sliding home)
     let target = S.sourMidi;
     for (let k = 1; k <= 6; k++) if (S.chord.pcs.has((S.sourMidi + k) % 12)) { target = S.sourMidi + k; break; }
-    E('sour', 'off', S.sourMidi, now, target);
+    const wasHeld = S.sourHeld;
+    if (!wasHeld) E('sour', 'on', S.sourMidi, now);
+    S.sourHeld = false;
+    E('sour', 'off', S.sourMidi, now + (wasHeld ? 0 : 0.3), target);
     E('bell', target + 12, now + 0.55, 1.2, 0.45);
     E('bell', target + 19, now + 0.55, 1.2, 0.35);
     vis.notes.push({ t: toVis(now + 0.55), lane: null, midi: target + 12, vel: 0.6, dur: 0.6, bell: true });
@@ -1941,7 +1978,7 @@ function setProjectOn(name, on) {
   if (!on && P.lead === name) P.lead = 'auto';
   if (!on && [S.deck.lead, S.deck.on, S.deck.next && S.deck.next.project].includes(name)) S.deck.asked = true;
   save();
-  updateSour();
+  updateSour(true);
   updateDrone();
   pickLead();
   renderLanes();
@@ -2011,7 +2048,7 @@ qs('#laneList').addEventListener('click', (ev) => {
   const b = ev.target.closest('[data-mute]');
   if (!b) return;
   const ln = lanes.get(b.dataset.mute);
-  if (ln) { ln.muted = !ln.muted; renderLanes(); }
+  if (ln) { ln.muted = !ln.muted; updateSour(true); renderLanes(); }
 });
 
 let jamCount = 0;
