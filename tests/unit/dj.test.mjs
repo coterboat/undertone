@@ -76,7 +76,7 @@ test("a push from another project takes over for a while, lands on a 4-bar line,
   const deck = createDeck('undertone', 'farshore', 0)
   run(deck, 0, 40, { undertone: 0.8 })
   assert.equal(claim(deck, 'jobsnearme', 41, 1_000_000, moodOf), 'takeover')
-  const landed = run(deck, 41, 41 + TAKEOVER_BARS + 12, { undertone: 0.8 })
+  const landed = run(deck, 41, 41 + TAKEOVER_BARS + 14, { undertone: 0.8 })
   assert.equal(landed.length, 2)
   const [take, back] = landed
   assert.equal(take.reason, 'takeover')
@@ -85,7 +85,9 @@ test("a push from another project takes over for a while, lands on a 4-bar line,
   assert.ok(take.bar - 41 >= BLEND_BARS + 1)
   assert.equal(back.reason, 'return')
   assert.equal(back.mood, 'farshore')
-  assert.equal(back.bar, take.bar + TAKEOVER_BARS)
+  // 16 full bars, then the two-bar breakdown, then the lead (Codex RV-002 F3: it was 14 full bars)
+  assert.equal(back.bar, take.bar + TAKEOVER_BARS + BLEND_BARS)
+  assert.equal(deck.next, null)
 })
 
 test("a push from the project on the deck is a surge; claims cool down per project; a takeover isn't interrupted", () => {
@@ -137,4 +139,38 @@ test("when you change who may lead, the busiest project takes the deck at once",
   assert.equal(landed[0].project, 'jobsnearme')
   assert.equal(landed[0].reason, 'you')
   assert.equal(deck.asked, false)
+})
+
+test('a lead change between two projects in the same mood still gets its breakdown (RV-002 F1)', () => {
+  const deck = createDeck('ascendant', 'lofi', 0)
+  const landed = run(deck, 0, CHALLENGE_BARS + 3 * PHRASE, { ascendant: 0.1, tablehand: 0.9 })
+  assert.equal(landed.length, 1)
+  assert.equal(landed[0].project, 'tablehand')
+  assert.equal(landed[0].mood, 'lofi')
+  assert.equal(landed[0].blend, true)
+})
+
+test('your choices beat a takeover (RV-002 F2)', () => {
+  // One still waiting for its breakdown is dropped
+  let deck = createDeck('undertone', 'farshore', 0)
+  run(deck, 0, 40, { undertone: 0.8 })
+  claim(deck, 'jobsnearme', 40, 1, moodOf)
+  assert.equal(deck.next.reason, 'takeover')
+  deck.asked = true // you turned jobsnearme off
+  run(deck, 41, 42, { undertone: 0.8 })
+  assert.equal(deck.next, null)
+  assert.equal(deck.on, 'undertone')
+  // One playing hands over at the next two-bar line after a blend
+  deck = createDeck('undertone', 'farshore', 0)
+  run(deck, 0, 40, { undertone: 0.8 })
+  claim(deck, 'jobsnearme', 40, 1, moodOf)
+  const took = run(deck, 41, 50, { undertone: 0.8 })
+  assert.equal(took[0].reason, 'takeover')
+  const pinAt = took[0].bar + 2
+  deck.asked = true // the page sets it when you click a pin, so a standing pin doesn't cancel later takeovers
+  const after = run(deck, pinAt, pinAt + 8, { undertone: 0.8 }, 'coter-kit')
+  assert.equal(after.length, 1)
+  assert.equal(after[0].project, 'coter-kit')
+  assert.equal(after[0].reason, 'you')
+  assert.ok(after[0].bar - pinAt <= BLEND_BARS + 2, 'lands within a few bars, not at the end of the takeover')
 })

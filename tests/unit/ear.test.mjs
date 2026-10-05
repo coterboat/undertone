@@ -42,3 +42,10 @@ test('a glitch on top of a pulse note still counts', () => {
   for (let i = SR; i < x.length; i++) x[i] += 0.3
   assert.equal(clicksIn(x), 1)
 })
+
+test('a glitch repeating every audio block is clicks, not a tone (RV-002 F4)', () => {
+  // A buffer that restarts every 128 samples with a jump: same-sign steps exactly a block apart
+  const x = sine(2, 220, 0.1)
+  for (let i = 0; i < x.length; i++) x[i] += 0.06 * ((i % 128) / 128)
+  assert.ok(clicksIn(x) > 100)
+})

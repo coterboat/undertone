@@ -1411,6 +1411,8 @@ function djBar(bar, time) {
 
 function land(n, bar, time) {
   S.blend = null;
+  // A surge or a takeover belonged to the one handing over
+  if (n.reason !== 'takeover' && n.project !== S.leadNow) S.surgeUntil = Math.min(S.surgeUntil, bar);
   S.leadNow = n.project;
   if (n.mood !== S.moodKey && MOODS[n.mood]) applyMood(n.mood, time);
   if (n.reason === 'takeover') {
@@ -1782,6 +1784,9 @@ async function play() {
 function stop() {
   S.playing = false;
   S.frozenAt = wall();
+  // A change under way doesn't survive a stop: without this the tempo kept gliding to the next track's
+  // and the track that was playing came back at it
+  if (S.blend || S.deck.next) { S.blend = null; S.deck.next = null; syncTransport(); }
   applyLevel();
   setTimeout(() => { if (!S.playing) S.audio.T.pause(); }, 450);
   setPlayUi();
@@ -1846,7 +1851,7 @@ function setProjectOn(name, on) {
   project(name).on = on;
   for (const l of lanes.values()) if (l.project === name) l.off = !on;
   if (!on && P.lead === name) P.lead = 'auto';
-  if (!on && S.deck.lead === name) S.deck.asked = true;
+  if (!on && [S.deck.lead, S.deck.on, S.deck.next && S.deck.next.project].includes(name)) S.deck.asked = true;
   save();
   updateSour();
   updateDrone();
@@ -1866,7 +1871,7 @@ qs('#projList').addEventListener('click', (ev) => {
   const name = b.dataset.projLead;
   P.lead = P.lead === name ? 'auto' : name;
   if (P.lead !== 'auto') { project(name).on = true; for (const l of lanes.values()) if (l.project === name) l.off = false; }
-  else S.deck.asked = true;
+  S.deck.asked = true;
   save();
   pickLead();
   renderProjects();
