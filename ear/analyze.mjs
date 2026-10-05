@@ -131,6 +131,29 @@ function color(t) {
 const BANDS = [['sub', 20, 60], ['bass', 60, 250], ['lowMid', 250, 800], ['mid', 800, 2500], ['presence', 2500, 6000], ['air', 6000, 24000]]
 const db = (a) => (a > 0 ? Math.round(20 * Math.log10(a) * 10) / 10 : -120)
 
+// True when the step at i comes back, same direction and at least half its size, three times in a row
+// a period apart (before it, after it or both: a note's first cycle has none before, and a second note
+// can cut the run short) for some period between 1.5 and 25 ms (40-660 Hz): the edge of a pulse or saw wave
+// playing a note. A click caused by a glitch doesn't repeat at a pitch. A click on top of a buzzy tone
+// still counts when it's more than twice the tone's own edges.
+export function pitchEdge(mono, i, sampleRate) {
+  const s = mono[i] - mono[i - 1]
+  const need = Math.abs(s) * 0.5
+  const stepAt = (j) => {
+    let best = -Infinity
+    for (let k = j - 1; k <= j + 1; k++) if (k >= 1 && k < mono.length) best = Math.max(best, (mono[k] - mono[k - 1]) * Math.sign(s))
+    return best
+  }
+  const lo = Math.round(sampleRate * 0.0015), hi = Math.round(sampleRate * 0.025)
+  for (let p = lo; p <= hi; p++) {
+    let run = 0
+    for (let k = 1; k <= 3 && stepAt(i + k * p) >= need; k++) run++
+    for (let k = 1; k <= 3 && stepAt(i - k * p) >= need; k++) run++
+    if (run >= 3) return true
+  }
+  return false
+}
+
 export function analyzeClip(mono, sampleRate) {
   const n = mono.length
   const N = 4096
@@ -155,7 +178,8 @@ export function analyzeClip(mono, sampleRate) {
   const rms = Math.sqrt(sumSq / Math.max(1, n))
 
   // Clicks: a jump between neighbouring samples far bigger than the jumps around it.
-  // Drum hits change smoothly or noisily; a click is one sharp step on its own.
+  // Drum hits change smoothly or noisily; a click is one sharp step on its own. A pulse or saw wave
+  // has a sharp step every cycle: that's a tone, not a click (pitchEdge below)
   const clicks = []
   const ctx = Math.round(sampleRate * 0.001)
   for (let i = ctx + 2; i < n - ctx - 2; i++) {
@@ -164,7 +188,7 @@ export function analyzeClip(mono, sampleRate) {
     let around = 0
     for (let k = 2; k <= ctx; k++) around += Math.abs(mono[i - k] - mono[i - k - 1]) + Math.abs(mono[i + k] - mono[i + k - 1])
     around /= 2 * (ctx - 1)
-    if (d > 10 * around + 0.005) {
+    if (d > 10 * around + 0.005 && !pitchEdge(mono, i, sampleRate)) {
       if (!clicks.length || i - clicks[clicks.length - 1] > sampleRate * 0.005) clicks.push(i)
     }
   }
