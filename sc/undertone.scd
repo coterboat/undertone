@@ -167,9 +167,11 @@ fork { 0.5.wait; s.waitForBoot({
 
 	// ------------------------------------------------------------ effects and master
 
+	// A dotted eighth at the page's tempo (/ut/tempo); 0.55 s is one at Late shift's 82 bpm, for a page
+	// that doesn't send it. Fixed, its repeats fell off the beat at every other tempo.
 	SynthDef(\utEcho, { |in, out, verb, time = 0.55|
-		var sig = In.ar(in, 2);
-		var d = LPF.ar(CombL.ar(sig, 2, time, time * 6), 2600);
+		var sig = In.ar(in, 2), t = Lag.kr(time, 0.5);
+		var d = LPF.ar(CombL.ar(sig, 2, t, t * 6), 2600);
 		Out.ar(out, d);
 		Out.ar(verb, d * 0.4);
 	}).add;
@@ -289,6 +291,7 @@ fork { 0.5.wait; s.waitForBoot({
 
 	OSCdef(\utTexture, { |msg| ~vinyl.set(\amount, msg[1]) }, '/ut/texture');
 	OSCdef(\utEnergy, { |msg| ~cutoff = msg[3] * (0.75 + (msg[2] * 1.6)) }, '/ut/energy');
+	OSCdef(\utTempo, { |msg| var t = 45 / msg[2].max(30); ~at.(msg[1], { ~echo.set(\time, t) }) }, '/ut/tempo');
 	OSCdef(\utLevel, { |msg| ~master.set(\level, msg[1]) }, '/ut/level');
 	OSCdef(\utPeak, { |msg| ~bridge.sendMsg('/ut/peak', msg[3], msg[4], msg[5], msg[6]) }, '/ut/peak');
 	OSCdef(\utPing, { ~bridge.sendMsg('/ut/pong') }, '/ut/ping');

@@ -346,6 +346,20 @@ test('SuperCollider is silenced once no page is listening, so a closed tab leave
   }
 })
 
+test("the page's tempo reaches SuperCollider, which times its echo to it, kept to a sane range", async () => {
+  const sc = await fakeSc()
+  const b = await bridge({ env: { UNDERTONE_SC_PORT: String(sc.port) } })
+  const tempos = () => sc.got.filter((m) => m.address === '/ut/tempo').map((m) => m.args.map((a) => Math.round(a * 100) / 100))
+  try {
+    await fetch(b.url + '/sc', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify([{ k: 'tempo', bpm: 90, d: 0.1 }, { k: 'tempo', bpm: 9000, d: 0.1 }]) })
+    for (let i = 0; i < 50 && tempos().length < 2; i++) await sleep(20)
+    assert.deepEqual(tempos(), [[0.1, 90], [0.1, 300]])
+  } finally {
+    sc.close()
+    await b.stop()
+  }
+})
+
 test('a bridge started by hand never leaves on its own', async () => {
   const b = await bridge({ env: { UNDERTONE_IDLE_EXIT_MIN: undefined } })
   const h = await b.health()

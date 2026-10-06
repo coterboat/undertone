@@ -57,6 +57,7 @@ window.UndertoneEngines.add({
       drone(level, tonic) { send({ k: 'drone', level, tonic }) },
       texture(a) { send({ k: 'texture', a }) },
       energy(e, time, base) { send({ k: 'energy', d: d(time), e, base: base || 900 }) },
+      tempo(bpm, time) { send({ k: 'tempo', d: d(time), bpm }) },
       level(a) { send({ k: 'level', a }) },
     }
   },

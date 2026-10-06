@@ -623,6 +623,7 @@ async function startEngine(id) {
   E('style', mood().style || 'lofi');
   E('tier', S.tier);
   E('energy', energy(), now, mood().padHz);
+  E('tempo', S.audio.T.bpm.value, now);
   if (S.sourOn && S.sourHeld) E('sour', 'on', S.sourMidi, now);
   // A pad right away, so a switch is heard at once instead of at the next chord
   if (S.playing) {
@@ -688,6 +689,9 @@ function tick(time) {
     sourTick(bar, time);
     driveBar(bar, time);
     updateTier(bar, En);
+    // An engine whose echo lives outside the page (SuperCollider's) times it to the tempo of this
+    // bar, read after the DJ and the drive have had their say
+    E('tempo', S.audio.T.bpm.getValueAtTime(time), time);
   }
 
   // The styles count bars from where the track started, so a change lands on the start of their phrase

@@ -349,6 +349,7 @@ function toOsc(i) {
     case 'drone': return ['/ut/drone', [num(i.level, 0, 1), num(i.tonic, 0, 127, 50)]]
     case 'texture': return ['/ut/texture', [num(i.a, 0, 1)]]
     case 'energy': return ['/ut/energy', [d, num(i.e, 0, 1), num(i.base, 100, 5000, 900)]]
+    case 'tempo': return ['/ut/tempo', [d, num(i.bpm, 30, 300, 82)]]
     case 'level': return ['/ut/level', [num(i.a, 0, 2)]]
     default: return null
   }
