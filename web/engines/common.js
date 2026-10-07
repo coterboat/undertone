@@ -51,7 +51,20 @@
       nodes.push(...parts)
       return node
     }
-    return { verbIn, echoIn, send, dispose: () => nodes.forEach((n) => n.dispose()) }
+    // '8n.' is turned into seconds once, at the tempo playing then; the page calls this each bar
+    const tempo = retime(echo)
+    return { verbIn, echoIn, send, tempo, dispose: () => nodes.forEach((n) => n.dispose()) }
+  }
+
+  // Keeps an echo a dotted eighth at the page's tempo, gliding to a new one over half a second
+  function retime(delay) {
+    let last = 0
+    return (bpm, time) => {
+      const t = (60 / bpm) * 0.75
+      if (!(t > 0) || Math.abs(t - last) < 1e-4) return
+      last = t
+      delay.delayTime.rampTo(t, 0.5, time)
+    }
   }
 
   // Tape hiss and vinyl crackle: a generated six-second loop, no samples. Soft by design: the
@@ -230,6 +243,7 @@
         return false
       },
       tier(t) { hallIn.gain.rampTo([0.3, 0.18, 0.12][t] ?? 0.3, 2) },
+      tempo: retime(arpEcho),
       dispose() { for (const n of nodes) { try { n.dispose() } catch {} } },
     }
   }

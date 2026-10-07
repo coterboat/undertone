@@ -118,7 +118,8 @@ window.UndertoneEngines.add({
         const s = kind === 'kick' ? kit + '_bd' : kind === 'snare' ? kit + '_sd' : kind === 'hat' ? kit + '_hh' : kind === 'tom' ? SND.tom : SND.rim
         play({ s, gain: 0.4 * vel, lpf: 6500, room: kind === 'tom' ? 0.4 : 0.08, orbit: 2 }, time, 0.3)
       },
-      bell(note, time, dur, vel) { play({ s: SND.bell, note, gain: 0.9 * vel, room: 0.6, roomsize: 5, delay: 0.25, delaytime: 0.375, delayfeedback: 0.35, orbit: 1 }, time, dur) },
+      // The same dotted eighth as the voices on its orbit: a fixed 0.375 retuned their shared echo on every bell
+      bell(note, time, dur, vel) { play({ s: SND.bell, note, gain: 0.9 * vel, room: 0.6, roomsize: 5, delay: 0.25, delaytime: (60 / io.bpm()) * 0.75, delayfeedback: 0.35, orbit: 1 }, time, dur) },
       sour(state, m, time, to) { sour[state](m, time, to) },
       drone(level, tonic, time) { drone.set(level, tonic, time) },
       texture(a) { texture.set(a) },

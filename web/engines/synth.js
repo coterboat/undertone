@@ -169,6 +169,7 @@ window.UndertoneEngines.add({
       voice(timbre, m, time, dur, vel) { if (space()) return space().voice(timbre, m, time, dur, vel); voices[timbre].triggerAttackRelease(hz(m), dur, time, vel) },
       layer(name, notes, time, dur, vel) { return space() ? space().layer(name, notes, time, dur, vel) : false },
       tier(t) { for (const k of Object.values(kits)) k.tier(t) },
+      tempo(bpm, time) { fx.tempo(bpm, time); for (const k of Object.values(kits)) k.tempo?.(bpm, time) },
       comp(notes, time, dur, vel) { comp.triggerAttackRelease(notes.map(hz), dur, time, vel) },
       drumKinds: ['kick', 'snare', 'hat', 'tom', 'rim', 'ride', 'openhat'],
       // What the conductor's style needs from the sound: a walking bass that speaks its notes (a

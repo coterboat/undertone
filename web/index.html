@@ -689,8 +689,8 @@ function tick(time) {
     sourTick(bar, time);
     driveBar(bar, time);
     updateTier(bar, En);
-    // An engine whose echo lives outside the page (SuperCollider's) times it to the tempo of this
-    // bar, read after the DJ and the drive have had their say
+    // The engines keep their echoes a dotted eighth at the tempo of this bar, read after the DJ and
+    // the drive have had their say ('8n.' alone is fixed at the tempo an engine started at)
     E('tempo', S.audio.T.bpm.getValueAtTime(time), time);
   }
 

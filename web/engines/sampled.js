@@ -111,6 +111,7 @@ window.UndertoneEngines.add({
       },
       layer(name, notes, time, dur, vel) { return space() ? space().layer(name, notes, time, dur, vel) : false },
       tier(t) { for (const k of Object.values(kits)) k.tier(t) },
+      tempo(bpm, time) { fx.tempo(bpm, time); for (const k of Object.values(kits)) k.tempo?.(bpm, time) },
       sour(state, m, time, to) { sour[state](m, time, to) },
       drone(level, tonic, time) { drone.set(level, tonic, time) },
       texture(a) { texture.set(a) },
