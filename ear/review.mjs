@@ -28,9 +28,10 @@ export function loadClips(dir, since = '0000-00-00') {
       try { s = JSON.parse(fs.readFileSync(path.join(d, 'stats.json'), 'utf8')); st = JSON.parse(fs.readFileSync(path.join(d, 'state.json'), 'utf8')) } catch { continue }
       const state = st.state || st
       const [, engine, kind] = name.split('-')
+      const heard = engine === 'sc' ? 0 : (state.volume || 0) + (state.trim || 0) // dB to add for the level you heard
       out.push({
         id: day + '/' + name, day, hour: Number(name.slice(0, 2)), engine, kind, mood: state.mood || '?',
-        rms: s.rmsDb + (engine === 'sc' ? 0 : (state.volume || 0) + (state.trim || 0)), peak: s.peakDb, crest: s.crestDb, clicks: s.clicksPerMinute, centroid: s.centroidHz, bands: s.bandsPercent || {},
+        rms: s.rmsDb + heard, peak: s.peakDb + heard, recordedPeak: s.peakDb, crest: s.crestDb, clicks: s.clicksPerMinute, centroid: s.centroidHz, bands: s.bandsPercent || {},
         lanes: (state.lanes || []).filter((l) => !l.off).length, busy: (state.lanes || []).filter((l) => l.busy).length,
         tier: state.tier ?? null, drive: state.drive ?? null, volume: state.volume ?? null, note: st.note || '',
         critique: fs.existsSync(path.join(d, 'critique.md')),
@@ -75,7 +76,8 @@ export function report(clips, since) {
   }
   const clicky = clips.filter((c) => c.clicks > 0)
   L.push('', '## Faults', '', `Clips with clicks: ${clicky.length}${clicky.length ? ' (' + clicky.slice(0, 8).map((c) => c.id).join(', ') + (clicky.length > 8 ? ', ...' : '') + ')' : ''}.`)
-  L.push(`Clipped (peak at 0 dB): ${clips.filter((c) => c.peak >= -0.1).length}. Peaks above -6 dB: ${clips.filter((c) => c.peak > -6).length}.`)
+  // Headroom is about the limiter, so these use the peak as recorded, before Volume
+  L.push(`Clipped (peak at 0 dB as recorded): ${clips.filter((c) => c.recordedPeak >= -0.1).length}. Peaks above -6 dB as recorded: ${clips.filter((c) => c.recordedPeak > -6).length}.`)
   L.push('', 'Loves by hour: ' + Object.entries(count(clips.filter((c) => c.kind === 'love'), (c) => c.hour)).map(([h, n]) => `${h}h ${n}`).join(', ') + '.')
   return L.join('\n') + '\n'
 }
