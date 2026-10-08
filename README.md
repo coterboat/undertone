@@ -65,6 +65,8 @@ Each one lands in `~/.undertone/ear/<date>/<time>-<engine>-<kind>/`:
 
 `~/.undertone/ear/index.jsonl` lists every clip, so reactions can be compared over time. The analysis has no dependencies (`ear/analyze.mjs`).
 
+The buttons don't change the music by themselves. A weekly listening review does: it reads what you saved (`node ear/review.mjs --since <date>` for the numbers, then the grated clips' spectrograms and Gemini's critiques), traces each pattern to the code and proposes tuning for you to pick. How, and the reviews so far: [docs/listening/](docs/listening/README.md). Grates teach it more than loves: press This grates for small things too.
+
 ### Gemini as a second pair of ears
 
 With a Gemini API key, every clip is sent to Gemini, which writes `critique.md`: the vibe, each element, problems, and the three changes that would help most. It listens blind (no measurements), so it's an independent second opinion. Only the audio and musical facts go to Google, never project names; a reaction's note only with `UNDERTONE_GEMINI_NOTE=1`. Get a key at [Google AI Studio](https://aistudio.google.com/apikey), copy it, and save it without pasting it anywhere else:
