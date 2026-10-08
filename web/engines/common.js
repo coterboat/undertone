@@ -324,6 +324,17 @@
     riser.volume.value = -30
     riser.connect(riserBp)
 
+    // Night watch's choir (Stellaris keeps its choir sparing): a slow "ooh" of detuned saws through two
+    // vowel formants with a little vibrato, mostly in the hall
+    const choirMix = keep(new Tone.Gain(1))
+    route(choirMix, 0.9)
+    const choirVib = keep(new Tone.Vibrato({ frequency: 4.6, depth: 0.04 }))
+    for (const [f, q] of [[520, 3.5], [920, 4.5]]) choirVib.connect(keep(new Tone.Filter({ frequency: f, type: 'bandpass', Q: q })).connect(choirMix))
+    const choir = keep(new Tone.PolySynth(Tone.Synth, { oscillator: { type: 'fatsawtooth', count: 3, spread: 18 }, envelope: { attack: 2.4, decay: 1, sustain: 0.8, release: 3.5 } }))
+    choir.maxPolyphony = 8
+    choir.volume.value = -14
+    choir.connect(choirVib)
+
     const voices = {
       keys: poly(Tone.FMSynth, { harmonicity: 2, modulationIndex: 1, envelope: { attack: 0.005, decay: 1.2, sustain: 0, release: 0.8 } }, -14, 0.4),
       pluck: poly(Tone.Synth, { oscillator: { type: 'triangle' }, envelope: { attack: 0.004, decay: 0.6, sustain: 0, release: 0.4 } }, -14, 0.4),
@@ -362,6 +373,7 @@
         if (name === 'ostinato') { ost.triggerAttackRelease(hz(notes[0]), dur, time, vel); ostSaw.triggerAttackRelease(hz(notes[0]), dur, time, vel); return true }
         if (name === 'pedal') { pedal.triggerAttackRelease(hz(notes[0]), dur, time, vel); return true }
         if (name === 'organ') { organ.triggerAttackRelease(notes.map(hz), dur, time, vel); return true }
+        if (name === 'choir') { choir.triggerAttackRelease(notes.map(hz), dur, time, vel); return true }
         if (name === 'boom') { boom.triggerAttackRelease(hz(notes[0]), '2n', time, vel); return true }
         if (name === 'kick') { kick.triggerAttackRelease(hz(notes[0]), 0.2, time, vel); return true }
         if (name === 'sub') { subBass.triggerAttackRelease(hz(notes[0]), dur, time, vel); return true }

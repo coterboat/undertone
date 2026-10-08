@@ -105,9 +105,10 @@ window.UndertoneEngines.add({
       },
       drumKinds: ['kick', 'snare', 'hat', 'tom', 'rim', 'ride', 'stick', 'clap', 'openhat'],
       style(name) {
-        current = name
+        // Night watch is Deep field's late-night sibling: the same kit
+        const kit = current = name === 'nightwatch' ? 'deepfield' : name
         pumpDepth = name === 'house' ? 0.5 : 0
-        if (KITS[name] && IO && !kits[name] && !loading[name]) loading[name] = KITS[name]().then((k) => { kits[name] = k }).catch(() => { loading[name] = null })
+        if (KITS[kit] && IO && !kits[kit] && !loading[kit]) loading[kit] = KITS[kit]().then((k) => { kits[kit] = k }).catch(() => { loading[kit] = null })
       },
       layer(name, notes, time, dur, vel) { return space() ? space().layer(name, notes, time, dur, vel) : false },
       tier(t) { for (const k of Object.values(kits)) k.tier(t) },

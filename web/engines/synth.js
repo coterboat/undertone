@@ -175,8 +175,9 @@ window.UndertoneEngines.add({
       // What the conductor's style needs from the sound: a walking bass that speaks its notes (a
       // brighter filter), house's pump
       style(name) {
-        current = name
-        if (KITS[name] && !kits[name] && !loading[name]) loading[name] = KITS[name]().then((k) => { kits[name] = k }).catch(() => { loading[name] = null })
+        // Night watch is Deep field's late-night sibling: the same kit
+        const kit = current = name === 'nightwatch' ? 'deepfield' : name
+        if (KITS[kit] && !kits[kit] && !loading[kit]) loading[kit] = KITS[kit]().then((k) => { kits[kit] = k }).catch(() => { loading[kit] = null })
         bass.filterEnvelope.baseFrequency = name === 'jazz' ? 210 : name === 'house' ? 140 : 110
         bass.filterEnvelope.octaves = name === 'jazz' ? 2.7 : 2.2
         pumpDepth = name === 'house' ? 0.55 : 0

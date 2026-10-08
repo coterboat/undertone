@@ -37,11 +37,16 @@ fork { 0.5.wait; s.waitForBoot({
 		Out.ar(verb, sig * 0.55);
 	}).add;
 
-	SynthDef(\utBass, { |out, freq = 55, amp = 0.3, dur = 0.5|
-		var env = EnvGen.kr(Env.perc(0.008, dur + 0.4, curve: -3), doneAction: 2);
+	// The listening review of 10-7 (docs/listening/2026-10-07.md): what grated on SuperCollider was a wall
+	// below 150 Hz. The bass's sub-octave is down to a hint (0.4 -> 0.12, nothing under 30 Hz), its tail
+	// follows the note (it rang 0.4 s past each one, so off-beat house bass never stopped), and it ducks
+	// under the kick, as on the Synth engine. Measured in an offline render of Afterhours: sub 26% -> 4%.
+	SynthDef(\utBass, { |out, duck, freq = 55, amp = 0.3, dur = 0.5|
+		var env = EnvGen.kr(Env.perc(0.008, dur + 0.12, curve: -3), doneAction: 2);
 		var fenv = EnvGen.kr(Env.perc(0.005, 0.25)).range(1, 4);
-		var sig = (LFTri.ar(freq) * 0.7) + (SinOsc.ar(freq * 0.5) * 0.4) + (Pulse.ar(freq, 0.4) * 0.15);
+		var sig = (LFTri.ar(freq) * 0.7) + (SinOsc.ar(freq * 0.5) * 0.12) + (Pulse.ar(freq, 0.4) * 0.15);
 		sig = RLPF.ar(sig, (freq * 3 * fenv).clip(60, 2000), 0.6);
+		sig = HPF.ar(sig, 30) * (1 - (In.kr(duck) * 0.6).clip(0, 0.6));
 		Out.ar(out, Pan2.ar(sig * env * amp, 0));
 	}).add;
 
@@ -105,11 +110,17 @@ fork { 0.5.wait; s.waitForBoot({
 
 	// ------------------------------------------------------------ drums
 
-	SynthDef(\utKick, { |out, amp = 0.8|
-		var penv = EnvGen.kr(Env([200, 52, 42], [0.035, 0.3], [-4, -2]));
-		var env = EnvGen.kr(Env.perc(0.002, 0.45, curve: -5), doneAction: 2);
-		var sig = SinOsc.ar(penv) + (LPF.ar(WhiteNoise.ar, 1500) * EnvGen.kr(Env.perc(0.001, 0.01)) * 0.3);
-		Out.ar(out, Pan2.ar((sig * env * amp).tanh, 0));
+	// The kick was most of that wall: a 42 Hz tail ringing 0.45 s, 7 dB over the bass. Now it ends at 48 Hz in
+	// 0.3 s with a short knock for definition (Gemini: it "lacks transient"), nothing under 32 Hz, and it
+	// tells the bass to step aside. Offline render: the same peak, 5 dB less energy, sub 65% -> 34%.
+	SynthDef(\utKick, { |out, duck, amp = 0.8|
+		var penv = EnvGen.kr(Env([220, 60, 48], [0.03, 0.22], [-4, -2]));
+		var env = EnvGen.kr(Env.perc(0.002, 0.3, curve: -6), doneAction: 2);
+		var knock = BPF.ar(WhiteNoise.ar, 2200, 0.8) * EnvGen.kr(Env.perc(0.0005, 0.012)) * 0.5;
+		var sig = SinOsc.ar(penv) + (LPF.ar(WhiteNoise.ar, 1500) * EnvGen.kr(Env.perc(0.001, 0.01)) * 0.3) + knock;
+		sig = HPF.ar(sig, 32);
+		Out.kr(duck, EnvGen.kr(Env.perc(0.004, 0.18)));
+		Out.ar(out, Pan2.ar((sig * env * amp * 0.75).tanh, 0));
 	}).add;
 
 	SynthDef(\utSnare, { |out, verb, amp = 0.5|
@@ -207,6 +218,7 @@ fork { 0.5.wait; s.waitForBoot({
 
 	~ringBuf = Buffer.alloc(s, (s.sampleRate ? 48000 * 30).asInteger, 2);
 	~phaseBus = Bus.control(s, 1);
+	~duckBus = Bus.control(s, 1); // the kick writes it, the bass reads it
 
 	s.sync;
 
@@ -242,7 +254,7 @@ fork { 0.5.wait; s.waitForBoot({
 	}, '/ut/pad');
 
 	OSCdef(\utBass, { |msg|
-		~at.(msg[1], { Synth(\utBass, [\out, ~masterBus, \freq, msg[2].midicps, \dur, msg[3], \amp, msg[4] * 0.25 * ~synths], ~src) });
+		~at.(msg[1], { Synth(\utBass, [\out, ~masterBus, \duck, ~duckBus, \freq, msg[2].midicps, \dur, msg[3], \amp, msg[4] * 0.25 * ~synths], ~src) });
 	}, '/ut/bass');
 
 	OSCdef(\utVoice, { |msg|
@@ -255,7 +267,7 @@ fork { 0.5.wait; s.waitForBoot({
 		var kind = msg[2].asSymbol, v = msg[3], m = msg[4];
 		~at.(msg[1], {
 			switch(kind,
-				\kick, { Synth(\utKick, [\out, ~masterBus, \amp, v * 0.7], ~src) },
+				\kick, { Synth(\utKick, [\out, ~masterBus, \duck, ~duckBus, \amp, v * 0.7], ~src) },
 				\snare, { Synth(\utSnare, [\out, ~masterBus, \verb, ~verbBus, \amp, v * 0.5], ~src) },
 				\hat, { Synth(\utHat, [\out, ~masterBus, \amp, v * 0.5], ~src) },
 				\tom, { Synth(\utTom, [\out, ~masterBus, \verb, ~verbBus, \freq, (if(m > 0) { m } { 38 }).midicps, \amp, v * 0.7], ~src) },

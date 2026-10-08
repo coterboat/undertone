@@ -33,4 +33,4 @@ session that builds what you pick copies the report here with the change.
 
 | Date | Clips | What came of it |
 | :- | -: | :- |
-| [2026-10-07](2026-10-07.md) | 194 (184 loved, 5 grated) | The first. SuperCollider's low end is what grates; moods 6.6 dB apart; Afterhours too relentless for all day |
+| [2026-10-07](2026-10-07.md) | 194 (184 loved, 5 grated) | The first. SuperCollider's kick and bass rebuilt, Afterhours trimmed and given rests, Blue hour trimmed (0.14.0) |

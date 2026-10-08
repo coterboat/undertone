@@ -5,6 +5,10 @@
 //   node ear/review.mjs [--since 2026-10-07] [--dir ~/.undertone/ear]
 //
 // Plain numbers from each clip's stats.json and state.json; nothing is sent anywhere.
+//
+// Loudness is the level you heard: the browser engines are recorded at the limiter, before your Volume
+// and the mood's trim, so those are added back; SuperCollider records its own output after its level,
+// which already includes both.
 
 import fs from 'node:fs'
 import os from 'node:os'
@@ -26,7 +30,7 @@ export function loadClips(dir, since = '0000-00-00') {
       const [, engine, kind] = name.split('-')
       out.push({
         id: day + '/' + name, day, hour: Number(name.slice(0, 2)), engine, kind, mood: state.mood || '?',
-        rms: s.rmsDb, peak: s.peakDb, crest: s.crestDb, clicks: s.clicksPerMinute, centroid: s.centroidHz, bands: s.bandsPercent || {},
+        rms: s.rmsDb + (engine === 'sc' ? 0 : (state.volume || 0) + (state.trim || 0)), peak: s.peakDb, crest: s.crestDb, clicks: s.clicksPerMinute, centroid: s.centroidHz, bands: s.bandsPercent || {},
         lanes: (state.lanes || []).filter((l) => !l.off).length, busy: (state.lanes || []).filter((l) => l.busy).length,
         tier: state.tier ?? null, drive: state.drive ?? null, volume: state.volume ?? null, note: st.note || '',
         critique: fs.existsSync(path.join(d, 'critique.md')),
@@ -44,7 +48,7 @@ function row(label, sel) {
   const b = (k) => r1(median(sel.map((c) => c.bands[k] ?? 0)))
   return `| ${label} | ${sel.length} | ${r1(median(sel.map((c) => c.rms)))} | ${r1(median(sel.map((c) => c.peak)))} | ${r1(median(sel.map((c) => c.centroid)))} | ${b('sub')} / ${b('bass')} / ${b('lowMid')} / ${b('mid')} / ${b('presence')} | ${sel.filter((c) => c.clicks > 0).length} |`
 }
-const HEAD = '| | clips | RMS dB | peak dB | centroid Hz | sub / bass / low-mid / mid / presence % | with clicks |\n| :- | -: | -: | -: | -: | :- | -: |'
+const HEAD = '| | clips | heard RMS dB | peak dB | centroid Hz | sub / bass / low-mid / mid / presence % | with clicks |\n| :- | -: | -: | -: | -: | :- | -: |'
 
 export function report(clips, since) {
   const L = []
