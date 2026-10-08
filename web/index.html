@@ -338,6 +338,9 @@ tr.attn td:first-child { color: var(--call); }
       <label for="tex">Tape and vinyl
         <input id="tex" type="range" min="0" max="100" step="1" value="25">
       </label>
+      <label for="scsyn" id="scsynRow" hidden>SuperCollider synths
+        <input id="scsyn" type="range" min="-24" max="6" step="1" value="0" title="The pad, bass and sessions' voices on SuperCollider; drums, bells and the sour note keep their level">
+      </label>
       <label class="toggle" for="demo">Demo sessions <input id="demo" type="checkbox"></label>
       <label class="toggle" for="drums">Drums follow the work <input id="drums" type="checkbox" checked></label>
       <label class="toggle" for="calls">Call me when a session needs me <input id="calls" type="checkbox" checked></label>
@@ -407,7 +410,7 @@ function save() {
   saveTimer = setTimeout(() => {
     try {
       localStorage.setItem(SAVE_KEY, JSON.stringify({
-        engine: S.engineId, texture: S.texture, volume: S.volume, drums: S.drumsOn, calls: S.callsOn, lead: P.lead,
+        engine: S.engineId, texture: S.texture, volume: S.volume, scSynths: S.scSynths, drums: S.drumsOn, calls: S.callsOn, lead: P.lead,
         projects: Object.fromEntries([...P.list.values()].map((p) => [p.name, { on: p.on, mood: p.mood }])),
       }));
     } catch {}
@@ -515,6 +518,7 @@ const S = {
   drumLevel: 0,
   texture: typeof saved.texture === 'number' ? saved.texture : 0.25,
   volume: typeof saved.volume === 'number' ? saved.volume : 0,
+  scSynths: typeof saved.scSynths === 'number' ? saved.scSynths : 0, // dB, SuperCollider's pad, bass and voices
   sourOn: false,
   sourMidi: 0,
   sourHeld: false,      // the sour note held: for SOUR_HOLD bars after a failure, then restated now and then
@@ -620,6 +624,7 @@ async function startEngine(id) {
   setEngineStatus('');
   const now = Tone.now() + 0.05;
   E('texture', S.texture);
+  E('synths', Math.pow(10, S.scSynths / 20));
   E('style', mood().style || 'lofi');
   E('tier', S.tier);
   E('energy', energy(), now, mood().padHz);
@@ -1937,6 +1942,7 @@ function renderEngines() {
     return `<button class="engine" type="button" role="radio" data-engine="${d.id}" aria-checked="${S.engineId === d.id}" ${blocked ? 'disabled' : ''}
       title="${esc(d.blurb)}${blocked ? ' Plays on the local page only.' : ''}">${esc(d.label)}${blocked ? '<small>local</small>' : ''}</button>`;
   }).join('');
+  qs('#scsynRow').hidden = S.engineId !== 'sc'; // its own level only where it plays
   paintEngineLine();
 }
 qs('#engineRow').addEventListener('click', (ev) => {
@@ -2090,6 +2096,8 @@ qs('#vol').addEventListener('input', (ev) => {
   E('level', S.playing ? Math.pow(10, S.volume / 20) : 0);
   save();
 });
+qs('#scsyn').value = S.scSynths;
+qs('#scsyn').addEventListener('input', (ev) => { S.scSynths = Number(ev.target.value); E('synths', Math.pow(10, S.scSynths / 20)); save(); });
 qs('#tex').value = Math.round(S.texture * 100);
 qs('#tex').addEventListener('input', (ev) => { S.texture = Number(ev.target.value) / 100; E('texture', S.texture); save(); });
 qs('#demo').addEventListener('change', (ev) => setDemo(ev.target.checked));

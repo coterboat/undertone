@@ -360,6 +360,20 @@ test("the page's tempo reaches SuperCollider, which times its echo to it, kept t
   }
 })
 
+test("the Mix's SuperCollider synths level reaches SuperCollider, kept to 0-2", async () => {
+  const sc = await fakeSc()
+  const b = await bridge({ env: { UNDERTONE_SC_PORT: String(sc.port) } })
+  const levels = () => sc.got.filter((m) => m.address === '/ut/synths').map((m) => Math.round(m.args[0] * 100) / 100)
+  try {
+    await fetch(b.url + '/sc', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify([{ k: 'synths', a: 0.5 }, { k: 'synths', a: 9 }, { k: 'synths', a: -1 }]) })
+    for (let i = 0; i < 50 && levels().length < 3; i++) await sleep(20)
+    assert.deepEqual(levels(), [0.5, 2, 0])
+  } finally {
+    sc.close()
+    await b.stop()
+  }
+})
+
 test('a bridge started by hand never leaves on its own', async () => {
   const b = await bridge({ env: { UNDERTONE_IDLE_EXIT_MIN: undefined } })
   const h = await b.health()

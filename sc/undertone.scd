@@ -230,22 +230,25 @@ fork { 0.5.wait; s.waitForBoot({
 	~fold = { |n, lo, hi| while { n < lo } { n = n + 12 }; while { n > hi } { n = n - 12 }; n };
 	~voices = (keys: \utKeys, pluck: \utPluck, mallet: \utMallet, cello: \utCello);
 	~gains = (keys: 0.22, pluck: 0.85, mallet: 0.18, cello: 0.36);
+	// The Mix's "SuperCollider synths" slider (10-7, Alex: "the synths can be a bit loud"): it scales the
+	// pad, bass and session voices as each note starts; drums, bells, the sour note, drone and vinyl keep theirs
+	~synths = 1;
 
 	// ------------------------------------------------------------ what the bridge sends
 
 	OSCdef(\utPad, { |msg|
 		var d = msg[1], v = msg[2], dur = msg[3], notes = msg.drop(5);
-		~at.(d, { notes.do { |m| Synth(\utPad, [\out, ~masterBus, \verb, ~verbBus, \freq, m.midicps, \amp, v * 0.14, \dur, dur, \cutoff, ~cutoff], ~src) } });
+		~at.(d, { notes.do { |m| Synth(\utPad, [\out, ~masterBus, \verb, ~verbBus, \freq, m.midicps, \amp, v * 0.14 * ~synths, \dur, dur, \cutoff, ~cutoff], ~src) } });
 	}, '/ut/pad');
 
 	OSCdef(\utBass, { |msg|
-		~at.(msg[1], { Synth(\utBass, [\out, ~masterBus, \freq, msg[2].midicps, \dur, msg[3], \amp, msg[4] * 0.25], ~src) });
+		~at.(msg[1], { Synth(\utBass, [\out, ~masterBus, \freq, msg[2].midicps, \dur, msg[3], \amp, msg[4] * 0.25 * ~synths], ~src) });
 	}, '/ut/bass');
 
 	OSCdef(\utVoice, { |msg|
 		var t = msg[2].asSymbol;
 		var def = ~voices[t] ? \utKeys, gain = ~gains[t] ? 0.2;
-		~at.(msg[1], { Synth(def, [\out, ~masterBus, \verb, ~verbBus, \echo, ~echoBus, \freq, msg[3].midicps, \dur, msg[4], \amp, msg[5] * gain], ~src) });
+		~at.(msg[1], { Synth(def, [\out, ~masterBus, \verb, ~verbBus, \echo, ~echoBus, \freq, msg[3].midicps, \dur, msg[4], \amp, msg[5] * gain * ~synths], ~src) });
 	}, '/ut/voice');
 
 	OSCdef(\utDrum, { |msg|
@@ -293,6 +296,7 @@ fork { 0.5.wait; s.waitForBoot({
 	OSCdef(\utEnergy, { |msg| ~cutoff = msg[3] * (0.75 + (msg[2] * 1.6)) }, '/ut/energy');
 	OSCdef(\utTempo, { |msg| var t = 45 / msg[2].max(30); ~at.(msg[1], { ~echo.set(\time, t) }) }, '/ut/tempo');
 	OSCdef(\utLevel, { |msg| ~master.set(\level, msg[1]) }, '/ut/level');
+	OSCdef(\utSynths, { |msg| ~synths = msg[1].clip(0, 2) }, '/ut/synths');
 	OSCdef(\utPeak, { |msg| ~bridge.sendMsg('/ut/peak', msg[3], msg[4], msg[5], msg[6]) }, '/ut/peak');
 	OSCdef(\utPing, { ~bridge.sendMsg('/ut/pong') }, '/ut/ping');
 	// Write the ring to a file and tell the bridge where its write head was
